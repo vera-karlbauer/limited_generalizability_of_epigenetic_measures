@@ -39,4 +39,4 @@ Contains data preparation and analysis scripts for epigenome-wide analyses.
 Due to the sensitive nature of the data and the informed consent agreements with participants and parents, the individual-level Kids2Health data are not publicly available. 
 Interested researchers can obtain a deidentified dataset after approval from the study board. 
 Clock- and score-based analysis results (*eTables 1-10*) are available as Supplementary Material:  
-Epigenome-wide associations (*eTable 11*) are available on Zenodo: <10.5281/zenodo.17899484>
+Epigenome-wide associations (*eTable 11*) are available on Zenodo: [https://doi.org/10.5281/zenodo.17899484](https://doi.org/10.5281/zenodo.17899484)
