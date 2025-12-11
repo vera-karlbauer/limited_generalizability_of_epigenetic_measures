@@ -1,0 +1,459 @@
+---
+title: "Limited generalizability of epigenetic measures: epigenetic clock performance"
+author: "Vera N. Karlbauer"
+contact: "vera_karlbauer@psych.mpg.de"
+date: "2024-12-04"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures", 
+                     digits = 4, scipen = 6)
+```
+
+# What this script does:
+- Test epigenetic clock performance (=linear association with chronological age).
+- For each epigenetic clock, test its association with chronological age by tissue.
+- Linear model: epiclock ~ chronoage + tissue + chronoage * tissue.
+- Significant chronoage * tissue interactions indicate significant performance differences between tissues.
+- Additionally (to better characterize strength of linear association), calculate Spearman correlation between epigenetic and chronological age separately per tissue.
+- Repeat all models with and without cell type correction.
+- Visualize all linear models as dotplots with regression lines; add Pearson correlation per tissue as label.
+- Combine lineplots for each epigenetic clock with/without celltype correction into one plot (eFigure 2).
+- Select exemplary line plots (for GrimAge2, PedBE) and export as Figure 1.
+- Export results as eTable 3.
+
+# Setup
+### Step 0: Load packages
+
+```{r, include = FALSE}
+# load packages
+library(rmarkdown)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(RColorBrewer)
+library(coxme)
+library(stringr)
+library(ggpubr)
+library(corrplot)
+library(writexl)
+```
+
+### Step 1: Source functions and utilities
+
+```{r}
+source("./00_functions/01_functions.R")
+source("./00_functions/02_utilities.R")
+```
+
+### Step 2: Load data
+
+```{r, include = FALSE}
+# main data
+load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue_inner.Rdata")
+# kinship matrix
+load("../../../01_data/02_proc/02_genotypes/qc-imputation_output/genotype_data/01_qc/13_ancestry_rels/K2H_SP1_2_3_4_genetic_kinship_matrix.Rdata")
+```
+
+### Step 3: Reshape data to long format
+
+```{r}
+# reshape data & filter to T0
+all_cross_tissue_inner <- all_cross_tissue_inner %>%
+  filter(timepoint == "T0") %>%
+  select(child_id, 
+         sample_ID_blood, 
+         sample_ID_saliva,
+         starts_with("epiage"),
+         starts_with("dunedin_pace"),
+         bio_blood_age,
+         bio_saliva_age)
+
+# transform to long format
+epiclocks_long <- pivot_longer(all_cross_tissue_inner,
+                               cols = c(starts_with("sample_ID_"), starts_with("epiage"), starts_with("dunedin_pace")),
+                               names_to = c(".value", "tissue"),
+                               names_pattern = "^(.*)_(blood|saliva)$") 
+# define chronological age depending on tissue
+epiclocks_long <- epiclocks_long %>%
+  mutate(chrono_age = as.numeric(case_when(tissue == "blood" ~ bio_blood_age,
+                                tissue == "saliva" ~ bio_saliva_age,
+                                TRUE ~ NA)))
+
+# exclude all children not in kinship matrix (no genotype data available = 2 kids = 4 observations)
+epiclocks_kin <- epiclocks_long %>%
+  filter(child_id %in% rownames(k2H_pcrelate_kinship_matrix))
+
+# filter kinship matrix
+kinship <- k2H_pcrelate_kinship_matrix[unique(epiclocks_kin$child_id), unique(epiclocks_kin$child_id)]
+```
+
+# Analysis
+
+## Prediction models: epigenetic clocks ~ chronological age
+
+### Run kinship-adjusted models without cell type correction for each epigenetic clock
+
+```{r}
+# list of epigenetic clocks
+unique_clocks <- epiclocks_kin %>%
+    select(starts_with("epiage")) %>%
+    select(!starts_with(c("epiage_accel_", "epiage_delta_", "epiage_telo", "epiage_pc_telo"))) %>%
+    select(!contains("resid"))
+unique_clocks <- data.frame(colnames(unique_clocks))
+colnames(unique_clocks) <- c("epiclock")
+# create empty results object
+results_kin_nocelltypes <- data.frame(matrix(nrow = 0, ncol = 6))
+colnames(results_kin_nocelltypes) <- c("coef_age", "p_age", 
+                                         "coef_tissue", "p_tissue", 
+                                         "coef_interaction",
+                                         "p_interaction")
+
+# loop linear model with age, tissue, interaction and subject effect over all episcores
+for(clock in unique_clocks$epiclock){
+  # subset data
+  current_data = select(epiclocks_kin, clock, chrono_age, tissue, child_id) %>%
+    dplyr::rename("clock" = clock)
+  # fit model
+  fit = lmekin(formula = clock ~ chrono_age + chrono_age*tissue + (1 | child_id),
+                       data = current_data,
+                       na.action = "na.omit", 
+               varlist = kinship)
+  sumstats = extract_coxme_table(fit)
+  # extract results
+  coefs = data.frame(matrix(nrow = 1, ncol = 0))
+  coefs$epiclock = clock
+  coefs$coef_chrono_age = sumstats["chrono_age",]$beta
+  coefs$p_chrono_age= sumstats["chrono_age",]$p
+  coefs$coef_tissue = sumstats["tissuesaliva",]$beta
+  coefs$p_tissue = sumstats["tissuesaliva",]$p
+  coefs$coef_interaction = sumstats["chrono_age:tissuesaliva",]$beta
+  coefs$p_interaction = sumstats["chrono_age:tissuesaliva",]$p
+  # append results
+  results_kin_nocelltypes <- rbind(results_kin_nocelltypes, coefs) 
+}
+
+```
+
+### Run kinship models with cell type correction for each epigenetic clock
+
+```{r}
+# list of epigenetic clocks
+resid <- epiclocks_kin %>%
+    select(starts_with("epiage")) %>%
+    select(!starts_with(c("epiage_accel_", "epiage_delta_", "epiage_telo", "epiage_pc_telo"))) %>%
+    select(contains("resid"))
+unique_clocks$epiclock_resid <- colnames(resid)
+# create empty results object
+results_kin_celltypes <- data.frame(matrix(nrow = 0, ncol = 6))
+colnames(results_kin_celltypes) <- c("coef_age", "p_age", 
+                                         "coef_tissue", "p_tissue", 
+                                         "coef_interaction",
+                                         "p_interaction")
+# loop linear model with age, tissue, interaction and subject effect over all episcores
+for(clock in unique_clocks$epiclock_resid){
+  # subset data
+  current_data = select(epiclocks_kin, clock, chrono_age, tissue, child_id) %>%
+    dplyr::rename("clock" = clock)
+  # fit model
+  fit = lmekin(formula = clock ~ chrono_age + chrono_age*tissue + (1 | child_id),
+                       data = current_data,
+                       na.action = "na.omit", 
+               varlist = kinship)
+  sumstats = extract_coxme_table(fit)
+  # extract results
+  coefs = data.frame(matrix(nrow = 1, ncol = 0))
+  coefs$epiclock = clock
+  coefs$coef_chrono_age = sumstats["chrono_age",]$beta
+  coefs$p_chrono_age= sumstats["chrono_age",]$p
+  coefs$coef_tissue = sumstats["tissuesaliva",]$beta
+  coefs$p_tissue = sumstats["tissuesaliva",]$p
+  coefs$coef_interaction = sumstats["chrono_age:tissuesaliva",]$beta
+  coefs$p_interaction = sumstats["chrono_age:tissuesaliva",]$p
+  # append results
+  results_kin_celltypes <- rbind(results_kin_celltypes, coefs) 
+}
+```
+
+## Correlation model: calculate Pearson correlation chronoage ~ epiage for each tissue with/without cell type correction
+
+```{r}
+# set up empty results object
+performance_per_tissue <- as.data.frame(matrix(nrow = 0, ncol = 9))
+colnames(performance_per_tissue) <- c("epiclock", "cor_blood", "p_blood", "cor_blood_celltype", "p_blood_celltype", "cor_saliva", "p_saliva", "cor_saliva_celltype", "p_saliva_celltype")
+  
+for(i in 1:nrow(unique_clocks)){
+  # coefficients as empty df
+  coefs = as.data.frame(matrix(nrow = 1, ncol = 0))
+  # define current clock
+  clock = unique_clocks$epiclock[i]
+  coefs$epiclock = clock
+  # correlations with age for blood and saliva with/without celltype
+  cor_blood = cor.test(all_cross_tissue_inner[,paste0(clock, "_blood")],
+                       all_cross_tissue_inner$bio_blood_age, 
+                       alternative = "two.sided", method = "pearson", use = "pairwise")
+  cor_blood_adj = cor.test(all_cross_tissue_inner[,paste0(clock, "_resid_blood")],
+                       all_cross_tissue_inner$bio_blood_age, 
+                       alternative = "two.sided", method = "pearson", use = "pairwise")
+  cor_saliva = cor.test(all_cross_tissue_inner[,paste0(clock, "_saliva")],
+                       all_cross_tissue_inner$bio_saliva_age, 
+                       alternative = "two.sided", method = "pearson", use = "pairwise")
+  cor_saliva_adj = cor.test(all_cross_tissue_inner[,paste0(clock, "_resid_saliva")],
+                       all_cross_tissue_inner$bio_saliva_age, 
+                       alternative = "two.sided", method = "pearson", use = "pairwise")
+  # extract coefficients
+  coefs$cor_blood = cor_blood$estimate
+  coefs$p_blood = cor_blood$p.value
+  coefs$cor_blood_celltype = cor_blood_adj$estimate
+  coefs$p_blood_celltype = cor_blood_adj$p.value
+  coefs$cor_saliva = cor_saliva$estimate
+  coefs$p_saliva = cor_saliva$p.value
+  coefs$cor_saliva_celltype = cor_saliva_adj$estimate
+  coefs$p_saliva_celltype = cor_saliva_adj$p.value
+  # append to results
+  performance_per_tissue = rbind(performance_per_tissue, coefs)
+}
+
+# FDR-correct p-values
+fdr_performance <- p.adjust(
+c(performance_per_tissue$p_blood, performance_per_tissue$p_blood_celltype, performance_per_tissue$p_saliva, performance_per_tissue$p_saliva_celltype), 
+    method = "fdr")
+performance_per_tissue <- performance_per_tissue %>%
+  mutate(p_blood_fdr = fdr_performance[1:nrow(performance_per_tissue)],
+         p_blood_celltype_fdr = fdr_performance[(1+ nrow(performance_per_tissue)):(2*nrow(performance_per_tissue))],
+         p_saliva_fdr = fdr_performance[(1+2*nrow(performance_per_tissue)):(3*nrow(performance_per_tissue))],
+         p_saliva_celltype_fdr = fdr_performance[(1+3*nrow(performance_per_tissue)):(4*nrow(performance_per_tissue))]
+         ) %>%
+  relocate(p_blood_fdr, .after = p_blood) %>%
+  relocate(p_blood_celltype_fdr, .after = p_blood_celltype) %>%
+  relocate(p_saliva_fdr, .after = p_saliva) %>%
+  relocate(p_saliva_celltype_fdr, .after = p_saliva_celltype) 
+
+# rename clocks
+performance_per_tissue <- performance_per_tissue %>%
+  mutate(clock_name = rename_clocks(epiclock))
+
+# sort clocks
+performance_per_tissue <- performance_per_tissue %>%
+  arrange(match(clock_name, clockorder))
+```
+
+## Join all values, FDR-correct, round values, export as table
+
+```{r}
+# adjoin results of regression models with and without cell type adjustment
+temp_celltype <- results_kin_celltypes %>%
+  mutate(epiclock = str_replace(epiclock, "_resid", ""))
+colnames(temp_celltype) <- paste0(colnames(temp_celltype), "_celltype_adjusted")
+results_epiclock_performance_all <- full_join(results_kin_nocelltypes, temp_celltype, join_by("epiclock" == "epiclock_celltype_adjusted"))
+
+# perform FDR correction on p-values of interaction terms in regression models
+fdr_performance <- p.adjust(
+c(results_epiclock_performance_all$p_interaction, results_epiclock_performance_all$p_interaction_celltype_adjusted),
+    method = "fdr")
+results_epiclock_performance_all <- results_epiclock_performance_all %>%
+  mutate(p_interaction_fdr = fdr_performance[1:(length(fdr_performance)/2)],
+         p_interaction_fdr_celltype_adjusted = fdr_performance[(length(fdr_performance)/2 + 1):length(fdr_performance)]) %>%
+  relocate(p_interaction_fdr, .after = p_interaction) %>%
+  relocate(p_interaction_fdr_celltype_adjusted, .after = p_interaction_celltype_adjusted)
+
+# rename and arrange clocks
+results_epiclock_performance_all <- results_epiclock_performance_all %>%
+  mutate(epiclock = rename_clocks(epiclock))
+results_epiclock_performance_all <- results_epiclock_performance_all %>%
+  arrange(match(epiclock, clockorder))
+
+# combine regression models and correlation results
+results_epiclock_performance_full <- full_join(results_epiclock_performance_all, select(performance_per_tissue, clock_name, cor_blood, cor_blood_celltype, cor_saliva, cor_saliva_celltype), join_by("epiclock" == "clock_name"))
+
+# round values
+results_epiclock_performance_full <- round_values(results_epiclock_performance_full)
+
+# export
+write_xlsx(results_epiclock_performance_full, path = "05_tables_for_publication/etable_3_epiclock_performance.xlsx", col_names = TRUE, format_headers = TRUE)
+```
+
+# Plotting
+
+## Individual line plots
+### Create individual lineplots for each clock
+
+```{r}
+# create plots without cell type correction
+for(clock in unique_clocks$epiclock){
+  # subset data
+  current_data = select(epiclocks_long, clock, chrono_age, tissue) %>%
+    dplyr::rename("clock" = clock)
+  # subset correlation labels
+  label_blood = paste0("r (blood) = ", round(filter(select(performance_per_tissue, epiclock, cor_blood), epiclock == clock)$cor_blood, digits =2))
+  label_saliva = paste0("r (saliva) = ", round(filter(select(performance_per_tissue, epiclock, cor_saliva), epiclock == clock)$cor_saliva, digits =2))
+  # define label positions
+  label_x = 6
+  label_y_blood = mean(filter(current_data, tissue == "blood")$clock, na.rm = TRUE) +1
+  label_y_saliva = mean(filter(current_data, tissue == "saliva")$clock, na.rm = TRUE)
+  # plot
+  p = ggplot(current_data, 
+             aes(y = clock, x = chrono_age, color = tissue, shape = tissue)) +
+    geom_point() + 
+    geom_smooth(method=lm) +
+    annotate("label",
+             label=label_blood,
+             x = label_x, y = label_y_blood,
+             size = 6/.pt,
+              fill = brewer.pal(n = 4, name = "Set1")[1]) + 
+    annotate("label", 
+             label=label_saliva,
+            x = label_x, y = label_y_saliva,
+            size = 6/.pt,
+              fill = brewer.pal(n = 4, name = "Set1")[2]) + 
+    theme_bw() +
+    theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold"),
+          axis.title.x = element_text(size = 10), axis.title.y = element_text(size = 6)) + 
+    scale_color_brewer(palette = "Set1") +
+    ggtitle(rename_clocks(clock)) +
+    xlab("Chronological age") + 
+    ylab("Epigenetic age")
+    assign(paste0("lineplot_nocell_", clock), p)
+}
+# create plots with cell type correction
+for(clock in unique_clocks$epiclock_resid){
+  # subset data
+  current_data = select(epiclocks_long, clock, chrono_age, tissue) %>%
+    dplyr::rename("clock" = clock)
+  # subset correlation labels
+  label_blood = paste0("r (blood) = ", round(filter(select(performance_per_tissue, epiclock, cor_blood_celltype), epiclock == gsub("_resid", "", clock))$cor_blood, digits =2))
+  label_saliva = paste0("r (saliva) = ", round(filter(select(performance_per_tissue, epiclock, cor_saliva_celltype), epiclock == sub("_resid", "", clock))$cor_saliva, digits =2))
+  # define label positions
+  label_x = 6
+  label_y_blood = mean(filter(current_data, tissue == "blood")$clock, na.rm = TRUE) +2
+  label_y_saliva = mean(filter(current_data, tissue == "saliva")$clock, na.rm = TRUE) -2
+  # plot
+  p = ggplot(current_data, 
+             aes(y = clock, x = chrono_age, color = tissue, shape = tissue)) +
+    geom_point() + 
+    geom_smooth(method=lm) +
+    annotate("label",
+             label=label_blood,
+             x = label_x, y = label_y_blood,
+             size = 6/.pt,
+              fill = "#EB5355") + 
+    annotate("label", 
+             label=label_saliva,
+            x = label_x, y = label_y_saliva,
+            size = 6/.pt,
+              fill = "#699ECA") + 
+    theme_bw() +
+    theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold"),
+          axis.title.x = element_text(size = 10), axis.title.y = element_text(size = 6)) + 
+  scale_color_manual(values=c("#EB5355", "#699ECA")) +
+    ggtitle(rename_clocks(clock)) +
+    xlab("Chronological age") + 
+    ylab("Residualized epigenetic age")
+  assign(paste0("lineplot_cell_", clock), p)
+}
+
+```
+
+### Export line plots per clock
+
+```{r}
+for(clock in unique_clocks$epiclock){
+  plot_nocell = paste0("lineplot_nocell_", clock)
+  plot_cell = paste0("lineplot_cell_", clock, "_resid")
+  combined = ggarrange(get(plot_nocell), get(plot_cell),
+                        ncol = 2,
+                        nrow = 1,
+                        common.legend = TRUE,
+                        legend = "bottom")
+  filename = paste0("./04_figures/lineplot_", clock, ".png")
+  png(filename = filename, width = 20, height = 14, res = 700, units = "cm")
+  print(annotate_figure(combined,
+                top = text_grob("uncorrected                                             cell type corrected",
+                                size = 14, face = "bold")
+                ))
+  dev.off()
+}
+
+```
+
+### Combine all line plots and export (= eFigure 2)
+
+```{r}
+## arrange & export all plots
+png(filename = "./04_figures/efigure_2_combined_lineplot_all_clocks.png", 
+    width = 21, height = 30, res = 700, units = "cm")
+combined_lineplot <- ggarrange(lineplot_nocell_epiage_horvath, lineplot_cell_epiage_horvath_resid,
+                               lineplot_nocell_epiage_pc_horvath, lineplot_cell_epiage_pc_horvath_resid,
+                               lineplot_nocell_epiage_skinblood, lineplot_cell_epiage_skinblood_resid,
+                               lineplot_nocell_epiage_pc_skinblood, lineplot_cell_epiage_pc_skinblood_resid,
+                               lineplot_nocell_epiage_hannum, lineplot_cell_epiage_hannum_resid,
+                               lineplot_nocell_epiage_pc_hannum, lineplot_cell_epiage_pc_hannum_resid,
+                               lineplot_nocell_epiage_pedbe, lineplot_cell_epiage_pedbe_resid,
+                               lineplot_nocell_epiage_wu, lineplot_cell_epiage_wu_resid,
+                               lineplot_nocell_epiage_phenoage, lineplot_cell_epiage_phenoage_resid,
+                               lineplot_nocell_epiage_pc_phenoage, lineplot_cell_epiage_pc_phenoage_resid,
+                               lineplot_nocell_epiage_grimage, lineplot_cell_epiage_grimage_resid,
+                               lineplot_nocell_epiage_pc_grimage, lineplot_cell_epiage_pc_grimage_resid,
+                               lineplot_nocell_epiage_grimage2, lineplot_cell_epiage_grimage2_resid,
+                        labels = c("A", "", "B", "", "C", "", "D", "",
+                                   "E", "", "F", "", "G", "", "H", "",
+                                   "I", "", "J", "", "K", "", "L", "", "M", ""),
+                        hjust = -1.5,
+                        ncol = 4,
+                        nrow = 7,
+                        align = "hv",
+                        common.legend = TRUE,
+                        legend = "bottom")
+
+annotate_figure(combined_lineplot,
+                top = text_grob("         uncorrected            cell type corrected           uncorrected            cell type corrected",
+                                                     size = 14, face = "bold"), 
+                fig.lab.pos = "top")
+
+# export
+dev.off()
+```
+
+## Plot select results only (Figure 1 for publication)
+
+```{r}
+# increase font sizes in plots
+lineplot_nocell_epiage_grimage2 <- lineplot_nocell_epiage_grimage2 +
+  theme(axis.title.y = element_text(size=10)) +
+  ggtitle("GrimAge2 (unadjusted)")
+lineplot_nocell_epiage_grimage2$layers[[3]]$aes_params$size = 10/.pt
+lineplot_nocell_epiage_grimage2$layers[[4]]$aes_params$size = 10/.pt
+lineplot_cell_epiage_grimage2_resid <- lineplot_cell_epiage_grimage2_resid +
+   theme(axis.title.y=element_text(size=10)) +
+  ggtitle("GrimAge2 (cell type adjusted)")
+lineplot_cell_epiage_grimage2_resid$layers[[3]]$aes_params$size = 10/.pt
+lineplot_cell_epiage_grimage2_resid$layers[[4]]$aes_params$size = 10/.pt
+lineplot_nocell_epiage_pedbe <- lineplot_nocell_epiage_pedbe +
+   theme(axis.title.y=element_text(size=10)) +
+  ggtitle("PedBE (unadjusted)")
+lineplot_nocell_epiage_pedbe$layers[[3]]$aes_params$size = 10/.pt
+lineplot_nocell_epiage_pedbe$layers[[4]]$aes_params$size = 10/.pt
+lineplot_cell_epiage_pedbe_resid <- lineplot_cell_epiage_pedbe_resid +
+  theme(axis.title.y=element_text(size=10)) +
+  ggtitle("PedBE (cell type adjusted)")
+lineplot_cell_epiage_pedbe_resid$layers[[3]]$aes_params$size = 10/.pt
+lineplot_cell_epiage_pedbe_resid$layers[[4]]$aes_params$size = 10/.pt
+
+# create combined figure
+combined = ggarrange(lineplot_nocell_epiage_grimage2, lineplot_cell_epiage_grimage2_resid,
+  lineplot_nocell_epiage_pedbe, lineplot_cell_epiage_pedbe_resid,
+                        ncol = 2,
+                        nrow = 2,
+                        common.legend = TRUE,
+                        legend = "bottom",
+  labels = c("A","B","C","D"))
+png(filename = "./04_figures/figure_1_lineplot_epiclock_performance.png", width = 20, height = 14, res = 700, units = "cm")
+  combined
+dev.off()
+
+```

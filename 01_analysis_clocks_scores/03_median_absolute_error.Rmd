@@ -1,0 +1,127 @@
+---
+title: 'Limited generalizability of epigenetic measures: median absolute error'
+author: "Vera N. Karlbauer"
+date: "2025-12-11"
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures", digits = 4, scipen = 6)
+```
+
+# What this script does:
+- calculate and plot median absolute error (MAE) per clock per tissue (eFigure 1)
+
+# Setup
+### Step 0: Load packages
+
+```{r, include = FALSE}
+# load packages
+library(rmarkdown)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(RColorBrewer)
+library(Metrics)
+```
+
+### Step 1: Load data
+
+```{r, include = FALSE}
+load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue_inner.Rdata")
+load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue.Rdata")
+```
+
+### Step 2: Transform data to long format
+
+```{r, include=FALSE}
+# select clocks only & transform to long format
+all_epiclocks <- all_cross_tissue_inner %>%
+  select(child_id, timepoint, subproject, bio_blood_age, bio_saliva_age, chrono_age, starts_with(c("epiage", "dunedin_pace"))) %>%
+  select(!starts_with(c("epiage_accel_", "epiage_delta_", "epiage_telo_", "epiage_pc_telo_")))%>%
+  select(!contains("resid"))
+# pivot by tissue
+all_epiclocks_long <- pivot_longer(all_epiclocks,
+                               c(starts_with("epiage"), starts_with("dunedin_pace")),
+                               names_to = c(".value", "tissue"),
+                               names_pattern = "^(.*)_(blood|saliva)$")
+# pivot by clock name
+all_epiclocks_long <- pivot_longer(all_epiclocks_long,
+                               cols = c(starts_with("epiage"), starts_with("dunedin_pace")),
+                               names_to = "clock_name",
+                               names_prefix = "epiage_",
+                               values_to = "epiage")
+# make age bins for plotting
+all_epiclocks_long$age_bin <- floor(all_epiclocks_long$chrono_age)
+```
+
+# Median Absolute Error
+
+## Calculate median absolute error per tissue per clock
+
+```{r}
+mae_clocks <- as.data.frame(matrix(ncol = 3, nrow = 0))
+colnames(mae_clocks) <- c("mae", "clock_name", "tissue")
+clocknames <- unique(filter(all_epiclocks_long, clock_name != "dunedin_pace")$clock_name)
+
+for(i in 1:length(clocknames)){
+  clockname = clocknames[i]
+  blood = filter(all_epiclocks_long, tissue == "blood", clock_name == clockname)
+  mae_blood = as.data.frame(mdae(actual = blood$bio_blood_age, predicted = blood$epiage))
+  colnames(mae_blood) = c("mae")
+  saliva = filter(all_epiclocks_long, tissue == "saliva", clock_name == clockname)
+  mae_saliva = as.data.frame(mdae(actual = saliva$bio_saliva_age, predicted = saliva$epiage))
+  colnames(mae_saliva) = c("mae")
+  mae = rbind(mae_blood, mae_saliva)
+  colnames(mae) = c("mae")
+  mae$clock_name = c(clockname, clockname)
+  mae$tissue = c("blood", "saliva")
+  mae_clocks <- rbind(mae_clocks, mae)
+}
+mae_clocks <- mae_clocks %>%
+ mutate(clock_name = str_replace_all(clock_name,
+                                              c("pc_horvath" = "PCHorvath",
+                                                "horvath" = "Horvath",
+                                                "pc_skinblood" = "PCSkinBlood",
+                                                 "skinblood" = "SkinBlood",
+                                                "pc_hannum" = "PCHannum",
+                                                "hannum" = "Hannum",
+                                                "pedbe" = "PedBE",
+                                                "pc_phenoage" = "PCPhenoAge",
+                                                "phenoage" = "PhenoAge",
+                                                "wu" = "Wu",
+                                                "pc_grimage" = "PCGrimAge",
+                                                 "grimage" = "GrimAge",
+                                                "grimage2" = "GrimAge2")))
+colorder <- c("Horvath", "PCHorvath", "SkinBlood", "PCSkinBlood", "Hannum", "PCHannum", "PedBE", "Wu", "PhenoAge", "PCPhenoAge", "GrimAge", "PCGrimAge", "GrimAge2")
+mae_clocks <- mae_clocks[order(factor(mae_clocks$clock_name, levels = colorder)),]
+```
+
+## Plot MAE per clock per tissue 
+
+```{r}
+maeplot <- ggplot(mae_clocks, aes(x = clock_name, y = mae, fill = tissue)) +
+  geom_bar(position = "dodge", stat="identity") +
+  geom_text(aes(label=round(mae, digits = 2)), vjust=-0.4, color="black", size=3.5,
+            position = position_dodge(0.9)) +
+  scale_fill_brewer(palette = "Set1") +
+  scale_x_discrete(limit = colorder) +
+  ylab("Median absolute error (years)") +
+  xlab("Clock name") +
+  # add abline to seperate chrono & bio clocks
+  geom_vline(xintercept = 8.5, color = "darkgrey", linewidth = 0.5) +
+  annotate("label", x=4, y=50, size = 4,
+           label = "Chronological clocks",
+           fill = "grey") +
+  annotate("label", x=11, y=50, size = 4,
+           label = "Biological clocks",
+           fill = "grey") +
+  ylim(0, 50) +
+  theme_bw() +
+  theme(legend.position = "inside", legend.position.inside = c(0.1,0.9), axis.text.x = element_text(angle = 45, vjust = 0.7, hjust = 0.7)) 
+maeplot
+ggsave(filename = "efigure_1_mae_per_clock.png", path = "./04_figures", device = 'png', height = 7, width = 10, dpi = 700)
+```

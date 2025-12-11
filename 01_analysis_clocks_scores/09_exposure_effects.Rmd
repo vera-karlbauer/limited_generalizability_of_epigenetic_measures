@@ -1,0 +1,334 @@
+---
+title: "Limited generalizability of epigenetic measures: Exposure effects"
+author: "Vera N. Karlbauer"
+contact: "vera_karlbauer@psych.mpg.de"
+date: "2025-07-16"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures", digits = 4, scipen = 6)
+```
+
+# What this script does:  
+- Attempt to replicate commonly found effects of early-life exposures on DNAm measures in blood and saliva.  
+- Compare effect sizes between tissues.
+- Exposures: early-life adversity (ELA) and socioeconomic status (SES). 
+- Epigenetic measures: 14 epigenetic clocks, 7 epigenetic scores.  
+- Covariates: age, sex, cell types, smoking (cg05575921), kinship matrix (ancestry & relatedness).
+- Plot results as barplot (Figure 4).
+
+# Setup
+### Step 0: Load packages
+
+```{r}
+library(rmarkdown)
+library(dplyr)
+library(RColorBrewer)
+library(coxme)
+library(writexl)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+library(ggpubr)
+```
+
+### Step 1: Source functions and utilities
+
+```{r}
+source("./00_functions/01_functions.R")
+source("./00_functions/02_utilities.R")
+```
+
+### Step 2: Load data
+
+```{r, include = FALSE}
+# main data
+load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue_inner.Rdata")
+# kinship matrix
+load("../../../01_data/02_proc/02_genotypes/qc-imputation_output/genotype_data/01_qc/13_ancestry_rels/K2H_SP1_2_3_4_genetic_kinship_matrix.Rdata")
+```
+
+### Step 3: Prepare data 
+
+```{r}
+# flip SES (*-1) for ELS & SES effects in same direction
+all_cross_tissue_inner <- all_cross_tissue_inner %>%
+  mutate(ses_total_negative = ses_total * -1)
+# exclude all children not in kinship matrix (no genotype data available = 2 kids = 4 observations), only keep T0 (baseline)
+all_cross_tissue_inner <- all_cross_tissue_inner %>%
+  filter(child_id %in% rownames(k2H_pcrelate_kinship_matrix)) %>%
+  filter(timepoint == "T0")
+
+# filter kinship matrix
+kinship <- k2H_pcrelate_kinship_matrix[unique(all_cross_tissue_inner$child_id), unique(all_cross_tissue_inner$child_id)]
+```
+
+### Create list of epigenetic measures of interest: EpiAgeAccel measures, DunedinPACE, epigenetic BMI & CRP, epigenetic-g, DNAmTL, PC DNAmTL.
+
+```{r}
+epimeasures <- gsub("_saliva", "", 
+                    colnames(all_cross_tissue_inner %>%
+                               select(contains("saliva")) %>%
+                               select(starts_with("epiage_accel") 
+                                      | contains("dunedin_pace")
+                                      | contains("bmi") 
+                                      | contains("crp") 
+                                      | contains("epigenetic_g")
+                                      | contains("epiage_telo")
+                                      | contains("epiage_pc_telo")) %>%
+                               select(!contains("resid"))))
+```
+
+
+# Analysis: early-life adversity (ELA) effects 
+
+## Fit linear models
+
+```{r}
+# create empty results object
+results_ela <- data.frame(matrix(nrow = 0, ncol = 6))
+colnames(results_ela) <- c("epigenetic_measure", "beta_std_blood", "p_blood", "beta_std_saliva", "p_saliva")
+
+# loop linear model over all epigenetic measures in blood and saliva
+for(epimeasure in epimeasures){
+  # subset blood data
+  current_data_blood = select(all_cross_tissue_inner, 
+                              paste0(epimeasure, "_blood"), child_id, group,
+                              bio_blood_age, sex, ku_bmi,
+                              cg05575921_blood, smoking_exposure_score_blood,
+                        CD4Tnv_blood, Baso_blood, CD4Tmem_blood, Bmem_blood, 
+                        Bnv_blood, Treg_blood, CD8Tmem_blood, CD8Tnv_blood, 
+                        Eos_blood, NK_blood, Mono_blood) %>%
+    dplyr::rename("epimeasure" = paste0(epimeasure, "_blood")) %>%
+    # standardize all numerical variables to mean = 0, sd = 1 (to get standardized betas)
+    mutate(across(where(is.numeric), scale))
+  # fit model in blood
+  fit_blood = lmekin(
+    formula = epimeasure ~ group + bio_blood_age + sex +
+      cg05575921_blood +
+    CD4Tnv_blood + Baso_blood + CD4Tmem_blood + Bmem_blood + Bnv_blood + Treg_blood + 
+    CD8Tmem_blood + CD8Tnv_blood + Eos_blood + NK_blood + Mono_blood +
+         (1 | child_id),
+       data = current_data_blood,
+       na.action = "na.omit", 
+       varlist = kinship)
+  sumstats_blood = extract_coxme_table(fit_blood)
+  # extract results blood
+  coefs = data.frame(matrix(nrow = 1, ncol = 0))
+  coefs$epigenetic_measure = epimeasure
+  coefs$beta_std_blood = sumstats_blood["group",]$beta
+  coefs$p_blood = sumstats_blood["group",]$p
+  # subset saliva data
+  current_data_saliva = select(all_cross_tissue_inner, 
+                        paste0(epimeasure, "_saliva"), child_id, group,
+                        bio_saliva_age, sex, ku_bmi, 
+                        cg05575921_saliva, smoking_exposure_score_saliva,
+                        Epithelial_saliva) %>%
+    dplyr::rename("epimeasure" = paste0(epimeasure, "_saliva")) %>%
+    # standardize all numerical variables to mean = 0, sd = 1 (to get standardized betas)
+    mutate(across(where(is.numeric), scale))
+  # fit model in saliva
+  fit_saliva = lmekin(
+    formula = epimeasure ~ group + bio_saliva_age + sex +
+      cg05575921_saliva +
+      Epithelial_saliva +
+         (1 | child_id),
+       data = current_data_saliva,
+       na.action = "na.omit", 
+       varlist = kinship)
+  sumstats_saliva = extract_coxme_table(fit_saliva)
+  # extract results saliva
+  coefs$beta_std_saliva = sumstats_saliva["group",]$beta
+  coefs$p_saliva = sumstats_saliva["group",]$p
+  # append results
+  results_ela <- rbind(results_ela, coefs)
+}
+
+# FDR-correct results
+fdr_ela <- as.data.frame(matrix(nrow = 2*length(results_ela$p_blood), ncol = 0))
+fdr_ela$tissue <- c(rep("blood", length(results_ela$p_blood)), 
+                   rep("saliva", length(results_ela$p_saliva)))
+fdr_ela$p_fdr <- p.adjust(c(results_ela$p_blood, results_ela$p_saliva), method = "fdr")
+# append FDR-corrected results
+results_ela <- results_ela %>%
+  mutate(p_fdr_blood = filter(fdr_ela, tissue == "blood")$p_fdr,
+         p_fdr_saliva = filter(fdr_ela, tissue == "saliva")$p_fdr) %>%
+  relocate(p_fdr_blood, .after = "p_blood")
+
+# rename epigenetic clocks/scores
+results_ela <- results_ela %>%
+  mutate(epigenetic_measure = rename_clocks(rename_accel(rename_scores(epigenetic_measure)))) %>%
+  mutate(epigenetic_measure = case_when(epigenetic_measure != "DunedinPACE" 
+                                        & epigenetic_measure %in% clockorder ~ paste0(epigenetic_measure, "Accel"),
+                                        TRUE ~ epigenetic_measure))
+
+epiorder <- c("HorvathAccel", "PCHorvathAccel", "SkinBloodAccel", "PCSkinBloodAccel", "HannumAccel", "PCHannumAccel", "PedBEAccel", "WuAccel", "PhenoAgeAccel", "PCPhenoAgeAccel", "GrimAgeAccel", "PCGrimAgeAccel", "GrimAge2Accel", "DunedinPACE", "BMI (Do, 2023)",  "BMI (Wahl, 2017)", "CRP (Wielscher, 2022)", "CRP (Ligthart, 2016)", "Epigenetic-g", "DNAmTL", "PC DNAmTL")
+
+results_ela <- results_ela %>%
+  arrange(factor(epigenetic_measure, levels = epiorder))
+```
+
+# Analysis: socioeconomic status (SES) effects 
+
+## Fit linear models
+
+```{r}
+# create empty results object
+results_ses <- data.frame(matrix(nrow = 0, ncol = 6))
+colnames(results_ses) <- c("epigenetic_measure", "beta_std_blood", "p_blood", "beta_std_saliva", "p_saliva")
+
+# loop linear model over all epigenetic measures in blood and saliva
+for(epimeasure in epimeasures){
+  # subset blood data
+  current_data_blood = select(all_cross_tissue_inner, 
+                              paste0(epimeasure, "_blood"), child_id, ses_total_negative,
+                              bio_blood_age, sex, ku_bmi, 
+                        cg05575921_blood, smoking_exposure_score_blood,
+                        CD4Tnv_blood, Baso_blood, CD4Tmem_blood, Bmem_blood, 
+                        Bnv_blood, Treg_blood, CD8Tmem_blood, CD8Tnv_blood, 
+                        Eos_blood, NK_blood, Mono_blood) %>%
+    dplyr::rename("epimeasure" = paste0(epimeasure, "_blood")) %>%
+    # standardize all numerical variables to mean = 0, sd = 1 (to get standardized betas)
+    mutate(across(where(is.numeric), scale))
+  # fit model in blood
+  fit_blood = lmekin(
+    formula = epimeasure ~ ses_total_negative + bio_blood_age + sex + cg05575921_blood +
+    CD4Tnv_blood + Baso_blood + CD4Tmem_blood + Bmem_blood + Bnv_blood + Treg_blood + 
+    CD8Tmem_blood + CD8Tnv_blood + Eos_blood + NK_blood + Mono_blood +
+         (1 | child_id),
+       data = current_data_blood,
+       na.action = "na.omit", 
+       varlist = kinship)
+  sumstats_blood = extract_coxme_table(fit_blood)
+  # extract results blood
+  coefs = data.frame(matrix(nrow = 1, ncol = 0))
+  coefs$epigenetic_measure = epimeasure
+  coefs$beta_std_blood = sumstats_blood["ses_total_negative",]$beta
+  coefs$p_blood = sumstats_blood["ses_total_negative",]$p
+  # subset saliva data
+  current_data_saliva = select(all_cross_tissue_inner, 
+                        paste0(epimeasure, "_saliva"), child_id, ses_total_negative,
+                        bio_saliva_age, sex, ku_bmi, 
+                        cg05575921_saliva, smoking_exposure_score_saliva,
+                        Epithelial_saliva) %>%
+    dplyr::rename("epimeasure" = paste0(epimeasure, "_saliva")) %>%
+    # standardize all numerical variables to mean = 0, sd = 1 (to get standardized betas)
+    mutate(across(where(is.numeric), scale))
+  # fit model in saliva
+  fit_saliva = lmekin(
+    formula = epimeasure ~ ses_total_negative + bio_saliva_age + sex 
+    + cg05575921_saliva +
+      Epithelial_saliva +
+         (1 | child_id),
+       data = current_data_saliva,
+       na.action = "na.omit", 
+       varlist = kinship)
+  sumstats_saliva = extract_coxme_table(fit_saliva)
+  # extract results saliva
+  coefs$beta_std_saliva = sumstats_saliva["ses_total_negative",]$beta
+  coefs$p_saliva = sumstats_saliva["ses_total_negative",]$p
+  # append results
+  results_ses <- rbind(results_ses, coefs)
+}
+
+# FDR-correct results
+fdr_ses <- as.data.frame(matrix(nrow = 2*length(results_ses$p_blood), ncol = 0))
+fdr_ses$tissue <- c(rep("blood", length(results_ses$p_blood)), 
+                   rep("saliva", length(results_ses$p_saliva)))
+fdr_ses$p_fdr <- p.adjust(c(results_ses$p_blood, results_ses$p_saliva), method = "fdr")
+# append FDR-corrected results
+results_ses <- results_ses %>%
+  mutate(p_fdr_blood = filter(fdr_ses, tissue == "blood")$p_fdr,
+         p_fdr_saliva = filter(fdr_ses, tissue == "saliva")$p_fdr) %>%
+  relocate(p_fdr_blood, .after = "p_blood")
+
+# rename & sort epiclocks/scores
+results_ses <- results_ses %>%
+  mutate(epigenetic_measure = rename_clocks(rename_accel(rename_scores(epigenetic_measure)))) %>%
+  mutate(epigenetic_measure = case_when(epigenetic_measure != "DunedinPACE" 
+                                        & epigenetic_measure %in% clockorder ~ paste0(epigenetic_measure, "Accel"),
+                                        TRUE ~ epigenetic_measure))
+# sort results
+results_ses <- results_ses %>%
+  arrange(factor(epigenetic_measure, levels = epiorder))
+```
+
+# Plot ELA and SES effects
+
+```{r}
+# results to long format & add significance category
+results_ela_long <- results_ela %>%
+    pivot_longer(
+    cols = ends_with("_blood") | ends_with("_saliva"),
+    names_to = c(".value", "tissue"),
+    names_pattern = "(.*)_(blood|saliva)"
+  ) %>%
+  mutate(significance = case_when(
+    p < 0.05 & p_fdr < 0.05 ~ "significant",
+    p < 0.05 & p_fdr > 0.05 ~ "nominal",
+    TRUE ~ "n.s."),
+    exposure = rep("Early-life adversity", 42))
+results_ses_long <- results_ses %>%
+    pivot_longer(
+    cols = ends_with("_blood") | ends_with("_saliva"),
+    names_to = c(".value", "tissue"),
+    names_pattern = "(.*)_(blood|saliva)"
+  ) %>%
+  mutate(significance = case_when(
+    p < 0.05 & p_fdr < 0.05 ~ "significant",
+    p < 0.05 & p_fdr > 0.05 ~ "nominal",
+    TRUE ~ "n.s."), 
+    exposure = rep("Lower SES", 42))
+results_long <- rbind(results_ela_long, results_ses_long) %>%
+  mutate(effect = paste0(tissue, ": ", significance),
+         type = case_when(epigenetic_measure %in% c("HorvathAccel", "PCHorvathAccel",
+                                                    "SkinBloodAccel", "PCSkinBloodAccel",
+                                                    "HannumAccel", "PCHannumAccel", 
+                                                    "WuAccel", "PedBEAccel") 
+                          ~ "Chronological clocks",
+                          epigenetic_measure %in% c("PhenoAgeAccel", "PCPhenoAgeAccel",
+                                                     "GrimAgeAccel", "PCGrimAgeAccel",
+                                                     "GrimAge2Accel", "DunedinPACE") 
+                           ~ "Biological clocks",
+                           epigenetic_measure %in% c("BMI (Do, 2023)", 
+                                                     "BMI (Wahl, 2017)",
+                                                     "CRP (Wielscher, 2022)",
+                                                     "CRP (Ligthart, 2016)", 
+                                                     "Epigenetic-g", "DNAmTL",
+                                                     "PC DNAmTL")
+                           ~ "Epigenetic scores"))
+
+# horizontal barplot standardized betas by measure, color = tissue, bar alpha = significance (n.s., nominal, FDR), facets = exposure
+results_barplot <- ggplot(aes(x = beta_std, 
+                          y = factor(epigenetic_measure, levels = rev(epiorder)), 
+                          color = factor(tissue, levels = c("saliva", "blood")), 
+                          fill = effect),
+                      data = results_long) +
+  # add hlines to separate groups of epigenetic measures
+  geom_hline(yintercept = c(7.5, 13.5), color = "grey", linewidth = 0.5) +
+  # add hlines to separate effects between clocks
+  geom_hline(yintercept = seq(1.5,21.5, 1), color = "lightgrey", linewidth = 0.25) +
+  # barplot
+  geom_bar(stat = "identity", position="dodge2") +
+  ylab("Epigenetic scores      Biological clocks      Chronological clocks") +
+  xlab("Effect size (standardized beta)") +
+  scale_color_brewer(palette = "Set1", direction = -1, guide = "none") +
+  scale_fill_manual(name = "Effect", values = c("#fce8e8", "#f28c8e", "#E41A1C", "#ebf2f8", "#9bbedc", "#377EB8")) +
+  theme_bw() +
+  theme(panel.grid.major.y = element_blank()) +
+  facet_wrap(facets = "exposure", nrow = 1, ncol = 2) +
+  theme(strip.text.x = element_text(size = 14, face = "bold"),
+        axis.title.y =  element_text(size = 14, face = "bold"),
+    strip.background = element_rect(fill="white", color = "white"),
+    legend.position = "inside", legend.position.inside = c(0.6, 0.83))
+
+results_barplot
+
+png(file = "04_figures/figure_4_combined_barplot_exposures.png", height = 7, width = 10, units = 'in', res = 700)
+results_barplot
+dev.off()
+```

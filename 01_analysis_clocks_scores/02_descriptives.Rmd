@@ -1,0 +1,192 @@
+---
+title: "Limited generalizability of epigenetic measures: sample descriptives"
+author: "Vera N. Karlbauer"
+contact: "vera_karlbauer@psych.mpg.de"
+date: "2024-12-12"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures", digits = 4, scipen = 6)
+```
+
+# What this script does:
+- Generate sample demographics table (N, sex, ethnicity, age, age range) for eTable 2
+
+# Setup
+### Step 0: Load packages
+
+```{r, include = FALSE}
+# load packages
+library(rmarkdown)
+library(dplyr)
+library(tidyr)
+library(tibble)
+```
+
+### Step 1: Load data
+
+```{r, include = FALSE}
+load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue_inner.Rdata")
+load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue.Rdata")
+```
+
+# Sample descriptives
+
+## Sample demographics table
+
+### Cross-tissue baseline sample (N=291)
+```{r}
+## cross-tissue baseline sample (N=291)
+# sample size
+all_cross_tissue_inner %>%
+  filter(timepoint == "T0") %>%
+  nrow()
+# % female
+all_cross_tissue_inner %>%
+  filter(timepoint == "T0") %>%
+  group_by(sex) %>%
+  summarise(cnt = n()) %>%
+  mutate(freq = formattable::percent(cnt / sum(cnt), digits = 2))
+# ethnicities
+all_cross_tissue_inner %>%
+  filter(timepoint == "T0") %>%
+  group_by(ethnicity) %>%
+  summarise(cnt = n()) %>%
+  mutate(freq = formattable::percent(cnt / sum(cnt), digits = 2))
+# % with early-life stress exposure
+all_cross_tissue_inner %>%
+  filter(timepoint == "T0") %>%
+  group_by(group) %>%
+  summarise(cnt = n()) %>%
+  mutate(freq = formattable::percent(cnt / sum(cnt), digits = 2))
+# age (+/- sd)
+all_cross_tissue_inner %>%
+  filter(timepoint == "T0") %>%
+  summarise(mean_age = round(mean(bio_blood_age, na.rm = TRUE), digits = 2), sd_age = round(sd(bio_blood_age, na.rm = TRUE), digits = 2))
+# age range
+all_cross_tissue_inner %>%
+  filter(timepoint == "T0") %>%
+  summarise(min = round(min(bio_blood_age), digits = 2), max = round(max(bio_blood_age), digits = 2))
+```
+
+### Longitudinal blood samples (N=70)
+```{r}
+# sample size
+all_cross_tissue %>%
+  filter(!is.na(arrayid_blood)) %>%
+  group_by(child_id) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  filter(timepoint == "T2") %>%
+  nrow()
+# % female
+all_cross_tissue %>%
+  filter(!is.na(arrayid_blood)) %>%
+  group_by(child_id) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  filter(timepoint == "T2") %>%
+  group_by(sex) %>%
+  summarise(cnt = n()) %>%
+  mutate(freq = formattable::percent(cnt / sum(cnt), digits = 2))
+# ethnicities (select all indivs. /w 2 timepoint, take T0 for ethnicity since less missings)
+all_cross_tissue %>%
+  filter(!is.na(arrayid_blood)) %>%
+  group_by(child_id) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  filter(timepoint == "T0") %>%
+  group_by(ethnicity) %>%
+  summarise(cnt = n()) %>%
+  mutate(freq = formattable::percent(cnt / sum(cnt), digits = 2))
+# % with early-life stress exposure
+all_cross_tissue %>%
+  filter(!is.na(arrayid_blood)) %>%
+  group_by(child_id) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  filter(timepoint == "T2") %>%
+  group_by(group) %>%
+  summarise(cnt = n()) %>%
+  mutate(freq = formattable::percent(cnt / sum(cnt), digits = 2))
+# age (+/- sd)
+all_cross_tissue %>%
+  filter(!is.na(arrayid_blood)) %>%
+  group_by(child_id) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  filter(timepoint == "T0") %>%
+  summarise(mean_age = round(mean(bio_blood_age), digits = 2), sd_age = round(sd(bio_blood_age), digits = 2))
+# age range
+all_cross_tissue %>%
+  filter(!is.na(arrayid_blood)) %>%
+  group_by(child_id) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  summarise(min = round(min(bio_blood_age), digits = 2), max = round(max(bio_blood_age), digits = 2))
+```
+
+### Longitudinal saliva samples (N=85)
+
+```{r}
+# sample size
+all_cross_tissue %>%
+  filter(!is.na(arrayid_saliva)) %>%
+  group_by(child_id) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  filter(timepoint == "T2") %>%
+  nrow()
+# % female
+all_cross_tissue %>%
+  filter(!is.na(arrayid_saliva)) %>%
+  group_by(child_id) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  filter(timepoint == "T2") %>%
+  group_by(sex) %>%
+  summarise(cnt = n()) %>%
+  mutate(freq = formattable::percent(cnt / sum(cnt), digits = 2))
+# ethnicities (select all indivs. /w 2 timepoint, take T0 for ethnicity since less missings)
+all_cross_tissue %>%
+  filter(!is.na(arrayid_saliva)) %>%
+  group_by(child_id) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  filter(timepoint == "T0") %>%
+  group_by(ethnicity) %>%
+  summarise(cnt = n()) %>%
+  mutate(freq = formattable::percent(cnt / sum(cnt), digits = 2))
+# % with early-life stress exposure
+all_cross_tissue %>%
+  filter(!is.na(arrayid_saliva)) %>%
+  group_by(child_id) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  filter(timepoint == "T2") %>%
+  group_by(group) %>%
+  summarise(cnt = n()) %>%
+  mutate(freq = formattable::percent(cnt / sum(cnt), digits = 2))
+# age (+/- sd)
+all_cross_tissue %>%
+  filter(!is.na(arrayid_saliva)) %>%
+  group_by(child_id) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  filter(timepoint == "T0") %>%
+  summarise(mean_age = round(mean(bio_saliva_age, na.rm = TRUE), digits = 2), 
+            sd_age = round(sd(bio_saliva_age, na.rm = TRUE), digits = 2))
+# age range
+all_cross_tissue %>%
+  filter(!is.na(arrayid_saliva)) %>%
+  group_by(child_id) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  summarise(min = round(min(bio_saliva_age, na.rm = TRUE), digits = 2), 
+            max = round(max(bio_saliva_age, na.rm = TRUE), digits = 2))
+```
+

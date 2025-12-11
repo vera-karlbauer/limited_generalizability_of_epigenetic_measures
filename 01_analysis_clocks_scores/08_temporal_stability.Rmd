@@ -1,0 +1,1317 @@
+---
+title: "Limited generalizability of epigenetic measures: temporal stability"
+author: "Vera N. Karlbauer"
+contact: "vera_karlbauer@psych.mpg.de"
+date: "2025-01-04"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures", 
+                     digits = 4, scipen = 6)
+```
+
+# What this script does:
+- Calculate within-person longitudinal Pearson correlations of epigenetic clocks and scores between T0 (baseline) and T2 (1-year follow-up).
+- Analyze correlations separately per tissue.
+- Analyze correlations with and without cell type correction.
+- For all correlations, also calculate corresponding ICC values (ICC2/random effects).
+- Plot results as corrplots (eFigure 4).
+- Export results as eTables 7-10.
+
+# Setup
+### Step 0: Load packages
+
+```{r}
+library(rmarkdown)
+library(dplyr)
+library(RColorBrewer)
+library(psych)
+library(tidyr)
+library(tibble)
+library(corrplot)
+library(stringr)
+library(writexl)
+```
+
+### Step 1: Source functions and utilities
+
+```{r}
+source("./00_functions/01_functions.R")
+source("./00_functions/02_utilities.R")
+```
+
+### Step 2: Load data
+
+```{r, include = FALSE}
+load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue.Rdata")
+```
+
+### Step 3: Prepare data 
+
+```{r}
+# convert to ultra-wide format (2 timepoints as separate variables)
+all_cross_tissue_wide <- pivot_wider(all_cross_tissue,
+                                      names_from = timepoint,
+                                      id_cols = c("child_id", "sex"),
+                                      values_from = !any_of(c("child_id", "sex")))
+
+# subset to individuals with 2 timepoints on either blood or saliva
+all_cross_tissue_wide <- all_cross_tissue_wide %>%
+  filter(!is.na(sample_ID_blood_T2) | (!is.na(sample_ID_saliva_T2)))
+
+## get no. of individuals with 2 blood & 2 saliva samples
+# blood
+table(is.na(all_cross_tissue_wide$sample_ID_blood_T2))
+# saliva
+table(is.na(all_cross_tissue_wide$sample_ID_saliva_T2))
+```
+
+# Analysis: Epigenetic aging measures
+
+## Correlations between timepoints (per tissue) with and without cell type correction
+
+### Epigenetic age
+#### Blood
+```{r}
+## no cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(starts_with(c("epiage", "dunedin_pace"))) %>%
+  select(!starts_with(c("epiage_accel_", "epiage_delta_", "epiage_telo_", "epiage_pc_telo_"))) %>%
+  select(!contains("resid")) %>%
+  relocate(contains("T2"), .after = contains("T0")) %>%
+  select(!contains("saliva"))
+# create correlation matrix
+corrmat_age_blood_nocelltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_age_blood_nocelltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+
+## with cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(starts_with(c("epiage", "dunedin_pace"))) %>%
+  select(!starts_with(c("epiage_accel_", "epiage_delta_", "epiage_telo_", "epiage_pc_telo_"))) %>%
+  select(contains("resid")) %>%
+  relocate(contains("T2"), .after = contains("T0")) %>%
+  select(!contains("saliva"))
+# create correlation matrix
+corrmat_age_blood_celltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_age_blood_celltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+```
+
+#### Saliva
+```{r}
+## no cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(starts_with(c("epiage_", "dunedin_pace"))) %>%
+  select(!starts_with(c("epiage_accel_", "epiage_delta_", "epiage_telo_", "epiage_pc_telo_"))) %>%
+  select(!contains("resid")) %>%
+  relocate(contains("T2"), .after = contains("T0")) %>%
+  select(contains("saliva"))
+# create correlation matrix
+corrmat_age_saliva_nocelltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_age_saliva_nocelltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+
+## with cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(starts_with(c("epiage", "dunedin_pace"))) %>%
+  select(!starts_with(c("epiage_accel_", "epiage_delta_", "epiage_telo_", "epiage_pc_telo_"))) %>%
+  select(contains("resid")) %>%
+  relocate(contains("T2"), .after = contains("T0")) %>%
+  select(contains("saliva"))
+# create correlation matrix
+corrmat_age_saliva_celltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_age_saliva_celltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+```
+
+### Epigenetic age acceleration
+#### Blood
+```{r}
+## no cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(starts_with("epiage_accel_")) %>%
+  select(!contains("resid")) %>%
+  relocate(contains("T2"), .after = contains("T0")) %>%
+  select(!contains("saliva"))
+# create correlation matrix
+corrmat_accel_blood_nocelltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_accel_blood_nocelltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+
+## with cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(starts_with("epiage_accel_")) %>%
+  select(contains("resid")) %>%
+  relocate(contains("T2"), .after = contains("T0")) %>%
+  select(!contains("saliva"))
+# create correlation matrix
+corrmat_accel_blood_celltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_accel_blood_celltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+```
+
+#### Saliva
+```{r}
+## no cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(starts_with("epiage_accel_")) %>%
+  select(!contains("resid")) %>%
+  relocate(contains("T2"), .after = contains("T0")) %>%
+  select(contains("saliva"))
+# create correlation matrix
+corrmat_accel_saliva_nocelltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_accel_saliva_nocelltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+
+## with cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(starts_with("epiage_accel_")) %>%
+  select(contains("resid")) %>%
+  relocate(contains("T2"), .after = contains("T0")) %>%
+  select(contains("saliva"))
+# create correlation matrix
+corrmat_accel_saliva_celltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_accel_saliva_celltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+```
+
+### Epigenetic age deltas
+#### Blood
+```{r}
+## no cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(starts_with("epiage_delta_")) %>%
+  select(!contains("resid")) %>%
+  relocate(contains("T2"), .after = contains("T0")) %>%
+  select(!contains("saliva"))
+# create correlation matrix
+corrmat_delta_blood_nocelltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_delta_blood_nocelltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+
+## with cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(starts_with("epiage_delta_")) %>%
+  select(contains("resid")) %>%
+  relocate(contains("T2"), .after = contains("T0")) %>%
+  select(!contains("saliva"))
+# create correlation matrix
+corrmat_delta_blood_celltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_delta_blood_celltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+```
+
+#### Saliva
+```{r}
+## no cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(starts_with("epiage_delta_")) %>%
+  select(!contains("resid")) %>%
+  relocate(contains("T2"), .after = contains("T0")) %>%
+  select(contains("saliva"))
+# create correlation matrix
+corrmat_delta_saliva_nocelltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_delta_saliva_nocelltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+
+## with cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(starts_with("epiage_delta_")) %>%
+  select(contains("resid")) %>%
+  relocate(contains("T2"), .after = contains("T0")) %>%
+   select(contains("saliva"))
+# create correlation matrix
+corrmat_delta_saliva_celltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_delta_saliva_celltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+```
+
+## Combined plot of all EpiAge measures
+### prepare blood
+```{r}
+## without cell types
+# format all correlation matrix diagonals of interest into table
+# epiage
+mat = corrmat_age_blood_nocelltypes
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+corrmat_nocell_blood <- as.matrix(diag(mat[rows, cols]))
+rownames(corrmat_nocell_blood) <- rows
+# epiage accel
+mat = corrmat_accel_blood_nocelltypes
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+corrmat_nocell_blood <- cbind(corrmat_nocell_blood,
+                    c(diag(mat[rows, cols]),NA))
+# epiage delta
+mat = corrmat_delta_blood_nocelltypes
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+corrmat_nocell_blood <- cbind(corrmat_nocell_blood,
+                    c(diag(mat[rows, cols]),NA))
+# fix row/col names
+colnames(corrmat_nocell_blood) <- c("age", "accel", "delta")
+rownames(corrmat_nocell_blood) <- rename_clocks(rownames(corrmat_nocell_blood))
+# sort
+corrmat_nocell_blood <- corrmat_nocell_blood[clockorder, ]
+
+# format all p-value matrix diagonals of interest into table
+# epiage
+mat = pmat_age_blood_nocelltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_nocell_blood <- as.matrix(diag(mat[rows, cols]))
+rownames(pmat_nocell_blood) <- rows
+# epiage accel
+mat = pmat_accel_blood_nocelltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_nocell_blood <- cbind(pmat_nocell_blood,
+                  c(diag(mat[rows, cols]), NA))
+# epiage delta
+mat = pmat_delta_blood_nocelltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_nocell_blood <- cbind(pmat_nocell_blood,
+                  c(diag(mat[rows, cols]), NA))
+# fix row/col names
+colnames(pmat_nocell_blood) <- c("age", "accel", "delta")
+rownames(pmat_nocell_blood) <- rename_clocks(rownames(pmat_nocell_blood) )
+# sort
+pmat_nocell_blood <- pmat_nocell_blood[clockorder,]
+
+## with cell types
+# format all correlation matrix diagonals of interest into table
+# epiage
+mat = corrmat_age_blood_celltypes
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+corrmat_cell_blood <- as.matrix(diag(mat[rows, cols]))
+rownames(corrmat_cell_blood) <- rows
+# epiage accel
+mat = corrmat_accel_blood_celltypes
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+corrmat_cell_blood <- cbind(corrmat_cell_blood,
+                    c(diag(mat[rows, cols]),NA))
+# epiage delta
+mat = corrmat_delta_blood_celltypes
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+corrmat_cell_blood <- cbind(corrmat_cell_blood,
+                    c(diag(mat[rows, cols]),NA))
+# fix row/col names
+colnames(corrmat_cell_blood) <- c("age", "accel", "delta")
+rownames(corrmat_cell_blood) <- rename_clocks(rownames(corrmat_cell_blood) )
+
+# sort
+corrmat_cell_blood <- corrmat_cell_blood[clockorder, ]
+
+# format all p-value matrix diagonals of interest into table
+# epiage
+mat = pmat_age_blood_celltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_cell_blood <- as.matrix(diag(mat[rows, cols]))
+rownames(pmat_cell_blood) <- rows
+# epiage accel
+mat = pmat_accel_blood_celltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_cell_blood <- cbind(pmat_cell_blood,
+                  c(diag(mat[rows, cols]), NA))
+# epiage delta
+mat = pmat_delta_blood_celltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_cell_blood <- cbind(pmat_cell_blood,
+                  c(diag(mat[rows, cols]), NA))
+# fix row/col names
+colnames(pmat_cell_blood) <- c("age", "accel", "delta")
+rownames(pmat_cell_blood) <- rename_clocks(rownames(pmat_cell_blood) )
+
+# sort
+pmat_cell_blood <- pmat_cell_blood[clockorder,]
+```
+
+### prepare saliva
+```{r}
+## without cell types
+# format all correlation matrix diagonals of interest into table
+# epiage
+mat = corrmat_age_saliva_nocelltypes
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+corrmat_nocell_saliva <- as.matrix(diag(mat[rows, cols]))
+rownames(corrmat_nocell_saliva) <- rows
+# epiage accel
+mat = corrmat_accel_saliva_nocelltypes
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+corrmat_nocell_saliva <- cbind(corrmat_nocell_saliva,
+                    c(diag(mat[rows, cols]),NA))
+# epiage delta
+mat = corrmat_delta_saliva_nocelltypes
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+corrmat_nocell_saliva <- cbind(corrmat_nocell_saliva,
+                    c(diag(mat[rows, cols]),NA))
+# fix row/col names
+colnames(corrmat_nocell_saliva) <- c("age", "accel", "delta")
+rownames(corrmat_nocell_saliva) <- rename_clocks(rownames(corrmat_nocell_saliva))
+# sort
+corrmat_nocell_saliva <- corrmat_nocell_saliva[clockorder, ]
+
+# format all p-value matrix diagonals of interest into table
+# epiage
+mat = pmat_age_saliva_nocelltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_nocell_saliva <- as.matrix(diag(mat[rows, cols]))
+rownames(pmat_nocell_saliva) <- rows
+# epiage accel
+mat = pmat_accel_saliva_nocelltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_nocell_saliva <- cbind(pmat_nocell_saliva,
+                  c(diag(mat[rows, cols]), NA))
+# epiage delta
+mat = pmat_delta_saliva_nocelltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_nocell_saliva <- cbind(pmat_nocell_saliva,
+                  c(diag(mat[rows, cols]), NA))
+# fix row/col names
+colnames(pmat_nocell_saliva) <- c("age", "accel", "delta")
+rownames(pmat_nocell_saliva) <- rename_clocks(rownames(pmat_nocell_saliva))
+
+# sort
+pmat_nocell_saliva <- pmat_nocell_saliva[clockorder,]
+
+## with cell types
+# format all correlation matrix diagonals of interest into table
+# epiage
+mat = corrmat_age_saliva_celltypes
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+corrmat_cell_saliva <- as.matrix(diag(mat[rows, cols]))
+rownames(corrmat_cell_saliva) <- rows
+# epiage accel
+mat = corrmat_accel_saliva_celltypes
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+corrmat_cell_saliva <- cbind(corrmat_cell_saliva,
+                    c(diag(mat[rows, cols]),NA))
+# epiage delta
+mat = corrmat_delta_saliva_celltypes
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+corrmat_cell_saliva <- cbind(corrmat_cell_saliva,
+                    c(diag(mat[rows, cols]),NA))
+# fix row/col names
+colnames(corrmat_cell_saliva) <- c("age", "accel", "delta")
+rownames(corrmat_cell_saliva) <- rename_clocks(rownames(corrmat_cell_saliva) )
+
+# sort
+corrmat_cell_saliva <- corrmat_cell_saliva[clockorder, ]
+
+# format all p-value matrix diagonals of interest into table
+# epiage
+mat = pmat_age_saliva_celltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_cell_saliva <- as.matrix(diag(mat[rows, cols]))
+rownames(pmat_cell_saliva) <- rows
+# epiage accel
+mat = pmat_accel_saliva_celltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_cell_saliva <- cbind(pmat_cell_saliva,
+                  c(diag(mat[rows, cols]), NA))
+# epiage delta
+mat = pmat_delta_saliva_celltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_cell_saliva <- cbind(pmat_cell_saliva,
+                  c(diag(mat[rows, cols]), NA))
+# fix row/col names
+colnames(pmat_cell_saliva) <- c("age", "accel", "delta")
+rownames(pmat_cell_saliva) <- rename_clocks(rownames(pmat_cell_saliva))
+
+# sort
+pmat_cell_saliva <- pmat_cell_saliva[clockorder,]
+```
+
+### Arrange and export final plot (eFigure 4A) 
+
+```{r}
+# initialize graphics device
+tiff(file = "04_figures/efigure_4a_corrplot_all_epiage_measures_across_time.png", height = 10, width = 5.5, units = 'in', res = 700)
+par(mfrow=c(2,2),
+    oma = c(0,3,4,0))
+# Plot 1: blood without cell types
+corrplot(corr = corrmat_nocell_blood,
+         method = "color",
+         type = "full",
+         col = GyRd_palette,
+         addCoef.col = "black",
+         tl.col = "black",
+         tl.cex = 1,
+         tl.srt = 45,
+         number.cex = 1,
+         cl.pos = "n",
+         p.mat = pmat_nocell_blood,
+         sig.level = 0.05,
+         insig = "label_sig",
+         pch = "       *",
+         pch.col = "lightblue",
+         pch.cex = 1.2,
+         na.label = "NA",
+         mar = c(0,0,0,1))
+mtext("A                 Correlation within clocks over time", side=3, line=6, at = 3, cex = 1.2, font = 2)
+mtext("without cell type correction", side=3, line=4, cex = 1)
+mtext("blood", side=2, at = 0.75, line=1, cex = 1.2, outer = TRUE)
+# Plot 2: blood with cell types
+par(xpd = FALSE)
+corrplot(corr = corrmat_cell_blood,
+         method = "color",
+         type = "full",
+         col = GyRd_palette,
+         addCoef.col = "black",
+         tl.col = "black",
+         tl.cex = 1,
+         tl.srt = 45,
+         number.cex = 1,
+         cl.pos = "r",
+         cl.align.text = "l",
+         cl.offset = 0.15,
+         cl.ratio = 0.4,
+         p.mat = pmat_cell_blood,
+         sig.level = 0.05,
+         insig = "label_sig",
+         pch = "       *",
+         pch.col = "lightblue",
+         pch.cex = 1.2,
+         na.label = "NA",
+         mar = c(0,0,0,1))
+mtext("with cell type correction", side=3, line=4, cex = 1)
+mtext("saliva", side=2, at = 0.25, line=1, cex = 1.2, outer = TRUE)
+# Plot 3: saliva without cell types
+corrplot(corr = corrmat_nocell_saliva,
+         method = "color",
+         type = "full",
+         col = GyBu_palette,
+         addCoef.col = "black",
+         tl.col = "black",
+         tl.cex = 1,
+         tl.srt = 45,
+         number.cex = 1,
+         cl.pos = "n",
+         p.mat = pmat_nocell_saliva,
+         sig.level = 0.05,
+         insig = "label_sig",
+         pch = "       *",
+         pch.col = "orange",
+         pch.cex = 1.2,
+         na.label = "NA",
+         mar = c(0,0,0,1))
+
+# Plot 4: saliva with cell types
+corrplot(corr = corrmat_cell_saliva,
+         method = "color",
+         type = "full",
+         col = GyBu_palette,
+         addCoef.col = "black",
+         tl.col = "black",
+         tl.cex = 1,
+         tl.srt = 45,
+         number.cex = 1,
+         cl.pos = "r",
+         cl.align.text = "l",
+         cl.offset = 0.15,
+         cl.ratio = 0.4,
+         p.mat = pmat_cell_saliva,
+         sig.level = 0.05,
+         insig = "label_sig",
+         pch = "       *",
+         pch.col = "orange",
+         pch.cex = 1.2,
+         na.label = "NA",
+         mar = c(0,0,0,1))
+# shut off
+dev.off()
+```
+
+## Calculate ICCs, combine with longitudinal correlations, export
+
+### Epigenetic clocks (blood)
+
+#### Prepare correlations for export
+```{r}
+# reshape
+# corrmat_nocell
+corrmat_nocell_blood <- as.data.frame(corrmat_nocell_blood)
+colnames(corrmat_nocell_blood) <- paste0("cor_", colnames(corrmat_nocell_blood))
+corrmat_nocell_blood <- corrmat_nocell_blood %>%
+  rownames_to_column(var = "epiclock")
+# pmat_nocell
+pmat_nocell_blood <- as.data.frame(pmat_nocell_blood)
+colnames(pmat_nocell_blood) <-paste0("p_", colnames(pmat_nocell_blood))
+pmat_nocell_blood <- pmat_nocell_blood %>%
+  rownames_to_column(var = "epiclock")
+# corrmat_cell
+corrmat_cell_blood <- as.data.frame(corrmat_cell_blood) 
+colnames(corrmat_cell_blood) <- paste0("cor_", colnames(corrmat_cell_blood), "_celltype_adjusted")
+corrmat_cell_blood <- corrmat_cell_blood %>%
+  rownames_to_column(var = "epiclock")
+# pmat_cell
+pmat_cell_blood <- as.data.frame(pmat_cell_blood) 
+colnames(pmat_cell_blood) <- paste0("p_", colnames(pmat_cell_blood), "_celltype_adjusted")
+pmat_cell_blood <- pmat_cell_blood %>%
+  rownames_to_column(var = "epiclock")
+
+# combine 
+longitudinal_epiclocks_blood <- full_join(corrmat_nocell_blood, pmat_nocell_blood, by = "epiclock")
+longitudinal_epiclocks_blood <- full_join(longitudinal_epiclocks_blood, corrmat_cell_blood, by = "epiclock")
+longitudinal_epiclocks_blood <- full_join(longitudinal_epiclocks_blood, pmat_cell_blood, by = "epiclock")
+longitudinal_epiclocks_blood <- pivot_longer(longitudinal_epiclocks_blood,
+    cols = c("cor_age", "cor_accel", "cor_delta", "p_age", "p_accel", "p_delta"),
+    names_to = c(".value", "type"),
+    names_pattern = "(cor|p)_(age|accel|delta)?")
+longitudinal_epiclocks_blood <- longitudinal_epiclocks_blood %>%
+  mutate(cor_celltype_adjusted = case_when(type == "age" 
+                                           ~ cor_age_celltype_adjusted,
+                                           type == "accel" 
+                                           ~ cor_accel_celltype_adjusted,
+                                           type == "delta" 
+                                           ~ cor_delta_celltype_adjusted,
+                                           TRUE ~ NA),
+         p_celltype_adjusted = case_when(type == "age" 
+                                           ~ p_age_celltype_adjusted,
+                                           type == "accel" 
+                                           ~ p_accel_celltype_adjusted,
+                                           type == "delta" 
+                                           ~ p_delta_celltype_adjusted,
+                                           TRUE ~ NA))
+longitudinal_epiclocks_blood <- longitudinal_epiclocks_blood %>%
+  select(-c(cor_age_celltype_adjusted, cor_accel_celltype_adjusted, cor_delta_celltype_adjusted, p_age_celltype_adjusted, p_accel_celltype_adjusted, p_delta_celltype_adjusted)) 
+longitudinal_epiclocks_blood <- longitudinal_epiclocks_blood %>%
+  mutate(epiclock = paste0(epiclock, str_to_title(type)))
+longitudinal_epiclocks_blood <- longitudinal_epiclocks_blood %>%
+  select(-type) %>%
+  filter(epiclock != "DunedinPACEAccel") %>%
+  filter(epiclock != "DunedinPACEDelta") %>%
+  mutate(epiclock = case_when(epiclock == "DunedinPACEAge" ~ "DunedinPACE", 
+                              TRUE ~ epiclock))
+
+# run FDR correction
+longitudinal_epiclocks_blood <- longitudinal_epiclocks_blood %>%
+  mutate(p_fdr = p.adjust(
+    c(longitudinal_epiclocks_blood$p, 
+      longitudinal_epiclocks_blood$p_celltype_adjusted),
+                          method = "fdr")[1:length(longitudinal_epiclocks_blood$p)],
+         p_fdr_celltype_adjusted = p.adjust(
+           c(longitudinal_epiclocks_blood$p,
+             longitudinal_epiclocks_blood$p_celltype_adjusted), 
+           method = "fdr")[(length(longitudinal_epiclocks_blood$p)+1):(2*length(longitudinal_epiclocks_blood$p))])
+
+```
+
+#### Calculate temporal ICCs of clocks & acceleration estimates
+
+```{r}
+# get names of all blood epigenetic aging measures
+clocknames <- gsub("_blood", "",
+  colnames(all_cross_tissue %>%
+  select(starts_with(c("epiage", "dunedin_pace"))) %>%
+  select(!starts_with(c("epiage_telo_", "epiage_pc_telo_"))) %>%
+    select(!contains("resid")) %>%
+    select(!contains("saliva"))))
+  
+# define empty results object
+icc_epiclocks_blood <- as.data.frame(matrix(nrow = 7, ncol = 0))
+# loop over all epiage measures
+# for each epiage measure, calculate ICC2 (random effects) with and without cell type correction
+for(i in 1:length(clocknames)) {
+  clock = clocknames[i]
+  icc_nocelltype = ICC(select(all_cross_tissue_wide, 
+                        paste0(clock, "_blood_T0"), paste0(clock, "_blood_T2")))
+  icc_celltype = ICC(select(all_cross_tissue_wide,
+                            paste0(clock, "_resid_blood_T0"), paste0(clock, "_blood_T2")))
+  icc = as.data.frame(matrix(nrow = 1, ncol = 0))
+  icc$name = clock
+  icc$icc = filter(icc_nocelltype$results, type == "ICC2")$ICC
+  icc$icc_lower = filter(icc_nocelltype$results, type == "ICC2")$"lower bound"
+  icc$icc_upper = filter(icc_nocelltype$results, type == "ICC2")$"upper bound"
+  icc$icc_celltype_adjusted = filter(icc_celltype$results, type == "ICC2")$ICC
+  icc$icc_lower_celltype_adjusted = filter(icc_celltype$results, type == "ICC2")$"lower bound"
+  icc$icc_upper_celltype_adjusted = filter(icc_celltype$results, type == "ICC2")$"upper bound"
+  # append to results
+  icc_epiclocks_blood <- rbind(icc_epiclocks_blood, icc)
+}
+
+```
+
+#### Export blood longitudinal clock correlations as table (eTable 7)
+
+```{r}
+# rename epiclocks
+icc_epiclocks_blood$name <- str_replace_all(icc_epiclocks_blood$name,
+                                              c("epiage_pc_horvath" = "PCHorvathAge",
+                                                "epiage_accel_pc_horvath" = "PCHorvathAccel",
+                                                "epiage_delta_pc_horvath" = "PCHorvathDelta",
+                                                "epiage_horvath" = "HorvathAge",
+                                                "epiage_accel_horvath" = "HorvathAccel",
+                                                "epiage_delta_horvath" = "HorvathDelta",
+                                                "epiage_pc_skinblood" = "PCSkinBloodAge",
+                                                "epiage_accel_pc_skinblood" = "PCSkinBloodAccel",
+                                                "epiage_delta_pc_skinblood" = "PCSkinBloodDelta",
+                                                "epiage_skinblood" = "SkinBloodAge",
+                                                "epiage_accel_skinblood" = "SkinBloodAccel",
+                                                "epiage_delta_skinblood" = "SkinBloodDelta",
+                                                "epiage_pc_hannum" = "PCHannumAge",
+                                                "epiage_accel_pc_hannum" = "PCHannumAccel",
+                                                "epiage_delta_pc_hannum" = "PCHannumDelta",
+                                                "epiage_hannum" = "HannumAge",
+                                                "epiage_accel_hannum" = "HannumAccel",
+                                                "epiage_delta_hannum" = "HannumDelta",
+                                                "epiage_pedbe" = "PedBEAge",
+                                                "epiage_accel_pedbe" = "PedBEAccel",
+                                                "epiage_delta_pedbe" = "PedBEDelta",
+                                                "epiage_pc_phenoage" = "PCPhenoAgeAge",
+                                                "epiage_accel_pc_phenoage" = "PCPhenoAgeAccel",
+                                                "epiage_delta_pc_phenoage" = "PCPhenoAgeDelta",
+                                                "epiage_phenoage" = "PhenoAgeAge",
+                                                "epiage_accel_phenoage" = "PhenoAgeAccel",
+                                                "epiage_delta_phenoage" = "PhenoAgeDelta",
+                                                "epiage_wu" = "WuAge",
+                                                "epiage_accel_wu" = "WuAccel",
+                                                "epiage_delta_wu" = "WuDelta",
+                                                "epiage_grimage2" = "GrimAge2Age",
+                                                "epiage_accel_grimage2" = "GrimAge2Accel",
+                                                "epiage_delta_grimage2" = "GrimAge2Delta",
+                                                "epiage_pc_grimage" = "PCGrimAgeAge",
+                                                "epiage_accel_pc_grimage" = "PCGrimAgeAccel",
+                                                "epiage_delta_pc_grimage" = "PCGrimAgeDelta",
+                                                "epiage_grimage" = "GrimAgeAge",
+                                                "epiage_accel_grimage" = "GrimAgeAccel",
+                                                "epiage_delta_grimage" = "GrimAgeDelta",
+                                                "dunedin_pace" = "DunedinPACE"))
+
+# append
+longitudinal_epiclocks_blood <- full_join(longitudinal_epiclocks_blood, icc_epiclocks_blood, join_by("epiclock" == "name"))
+
+# round values
+longitudinal_epiclocks_blood <- round_values(longitudinal_epiclocks_blood)
+
+# export
+write_xlsx(longitudinal_epiclocks_blood, path = "05_tables_for_publication/etable_7_longitudinal_epiclocks_blood.xlsx", col_names = TRUE, format_headers = TRUE)
+```
+
+### Epigenetic clocks (saliva)
+
+#### Prepare saliva longitudinal correlations for export
+
+```{r}
+# reshape
+# corrmat_nocell
+corrmat_nocell_saliva <- as.data.frame(corrmat_nocell_saliva)
+colnames(corrmat_nocell_saliva) <- paste0("cor_", colnames(corrmat_nocell_saliva))
+corrmat_nocell_saliva <- corrmat_nocell_saliva %>%
+  rownames_to_column(var = "epiclock")
+# pmat_nocell
+pmat_nocell_saliva <- as.data.frame(pmat_nocell_saliva)
+colnames(pmat_nocell_saliva) <-paste0("p_", colnames(pmat_nocell_saliva))
+pmat_nocell_saliva <- pmat_nocell_saliva %>%
+  rownames_to_column(var = "epiclock")
+# corrmat_cell
+corrmat_cell_saliva <- as.data.frame(corrmat_cell_saliva) 
+colnames(corrmat_cell_saliva) <- paste0("cor_", colnames(corrmat_cell_saliva), "_celltype_adjusted")
+corrmat_cell_saliva <- corrmat_cell_saliva %>%
+  rownames_to_column(var = "epiclock")
+# pmat_cell
+pmat_cell_saliva <- as.data.frame(pmat_cell_saliva) 
+colnames(pmat_cell_saliva) <- paste0("p_", colnames(pmat_cell_saliva), "_celltype_adjusted")
+pmat_cell_saliva <- pmat_cell_saliva %>%
+  rownames_to_column(var = "epiclock")
+
+# combine 
+longitudinal_epiclocks_saliva <- full_join(corrmat_nocell_saliva, pmat_nocell_saliva, by = "epiclock")
+longitudinal_epiclocks_saliva <- full_join(longitudinal_epiclocks_saliva, corrmat_cell_saliva, by = "epiclock")
+longitudinal_epiclocks_saliva <- full_join(longitudinal_epiclocks_saliva, pmat_cell_saliva, by = "epiclock")
+longitudinal_epiclocks_saliva <- pivot_longer(longitudinal_epiclocks_saliva,
+    cols = c("cor_age", "cor_accel", "cor_delta", "p_age", "p_accel", "p_delta"),
+    names_to = c(".value", "type"),
+    names_pattern = "(cor|p)_(age|accel|delta)?")
+longitudinal_epiclocks_saliva <- longitudinal_epiclocks_saliva %>%
+  mutate(cor_celltype_adjusted = case_when(type == "age" 
+                                           ~ cor_age_celltype_adjusted,
+                                           type == "accel" 
+                                           ~ cor_accel_celltype_adjusted,
+                                           type == "delta" 
+                                           ~ cor_delta_celltype_adjusted,
+                                           TRUE ~ NA),
+         p_celltype_adjusted = case_when(type == "age" 
+                                           ~ p_age_celltype_adjusted,
+                                           type == "accel" 
+                                           ~ p_accel_celltype_adjusted,
+                                           type == "delta" 
+                                           ~ p_delta_celltype_adjusted,
+                                           TRUE ~ NA))
+longitudinal_epiclocks_saliva <- longitudinal_epiclocks_saliva %>%
+  select(-c(cor_age_celltype_adjusted, cor_accel_celltype_adjusted, cor_delta_celltype_adjusted, p_age_celltype_adjusted, p_accel_celltype_adjusted, p_delta_celltype_adjusted)) 
+longitudinal_epiclocks_saliva <- longitudinal_epiclocks_saliva %>%
+  mutate(epiclock = paste0(epiclock, str_to_title(type)))
+longitudinal_epiclocks_saliva <- longitudinal_epiclocks_saliva %>%
+  select(-type) %>%
+  filter(epiclock != "DunedinPACEAccel") %>%
+  filter(epiclock != "DunedinPACEDelta") %>%
+  mutate(epiclock = case_when(epiclock == "DunedinPACEAge" ~ "DunedinPACE", 
+                              TRUE ~ epiclock))
+
+# run FDR correction
+longitudinal_epiclocks_saliva <- longitudinal_epiclocks_saliva %>%
+  mutate(p_fdr = p.adjust(
+    c(longitudinal_epiclocks_saliva$p,
+      longitudinal_epiclocks_saliva$p_celltype_adjusted), 
+    method = "fdr")[1:length(longitudinal_epiclocks_saliva$p)],
+         p_fdr_celltype_adjusted = p.adjust(
+           c(longitudinal_epiclocks_saliva$p,
+             longitudinal_epiclocks_saliva$p_celltype_adjusted), 
+           method = "fdr")[(length(longitudinal_epiclocks_saliva$p)+1):(length(longitudinal_epiclocks_saliva$p)*2)])
+
+```
+
+#### Calculate temporal ICCs of clocks & acceleration estimates in saliva
+
+```{r}
+# get names of all blood epigenetic aging measures
+clocknames <- gsub("_saliva", "",
+  colnames(all_cross_tissue %>%
+  select(starts_with(c("epiage", "dunedin_pace"))) %>%
+  select(!starts_with(c("epiage_telo_", "epiage_pc_telo_"))) %>%
+    select(!contains("resid")) %>%
+    select(contains("saliva"))))
+  
+# define empty results object
+icc_epiclocks_saliva <- as.data.frame(matrix(nrow = 7, ncol = 0))
+# loop over all epiage measures
+# for each epiage measure, calculate ICC2 (random effects) with and without cell type correction
+for(i in 1:length(clocknames)) {
+  clock = clocknames[i]
+  icc_nocelltype = ICC(select(all_cross_tissue_wide, 
+                        paste0(clock, "_saliva_T0"), paste0(clock, "_saliva_T2")))
+  icc_celltype = ICC(select(all_cross_tissue_wide,
+                            paste0(clock, "_resid_saliva_T0"), paste0(clock, "_saliva_T2")))
+  icc = as.data.frame(matrix(nrow = 1, ncol = 0))
+  icc$name = clock
+  icc$icc = filter(icc_nocelltype$results, type == "ICC2")$ICC
+  icc$icc_lower = filter(icc_nocelltype$results, type == "ICC2")$"lower bound"
+  icc$icc_upper = filter(icc_nocelltype$results, type == "ICC2")$"upper bound"
+  icc$icc_celltype_adjusted = filter(icc_celltype$results, type == "ICC2")$ICC
+  icc$icc_lower_celltype_adjusted = filter(icc_celltype$results, type == "ICC2")$"lower bound"
+  icc$icc_upper_celltype_adjusted = filter(icc_celltype$results, type == "ICC2")$"upper bound"
+  # append to results
+  icc_epiclocks_saliva <- rbind(icc_epiclocks_saliva, icc)
+}
+
+```
+
+#### Export saliva longitudinal clock correlations as table (eTable 8)
+
+```{r}
+# rename epiclocks
+icc_epiclocks_saliva$name <- str_replace_all(icc_epiclocks_saliva$name,
+                                              c("epiage_pc_horvath" = "PCHorvathAge",
+                                                "epiage_accel_pc_horvath" = "PCHorvathAccel",
+                                                "epiage_delta_pc_horvath" = "PCHorvathDelta",
+                                                "epiage_horvath" = "HorvathAge",
+                                                "epiage_accel_horvath" = "HorvathAccel",
+                                                "epiage_delta_horvath" = "HorvathDelta",
+                                                "epiage_pc_skinblood" = "PCSkinBloodAge",
+                                                "epiage_accel_pc_skinblood" = "PCSkinBloodAccel",
+                                                "epiage_delta_pc_skinblood" = "PCSkinBloodDelta",
+                                                "epiage_skinblood" = "SkinBloodAge",
+                                                "epiage_accel_skinblood" = "SkinBloodAccel",
+                                                "epiage_delta_skinblood" = "SkinBloodDelta",
+                                                "epiage_pc_hannum" = "PCHannumAge",
+                                                "epiage_accel_pc_hannum" = "PCHannumAccel",
+                                                "epiage_delta_pc_hannum" = "PCHannumDelta",
+                                                "epiage_hannum" = "HannumAge",
+                                                "epiage_accel_hannum" = "HannumAccel",
+                                                "epiage_delta_hannum" = "HannumDelta",
+                                                "epiage_pedbe" = "PedBEAge",
+                                                "epiage_accel_pedbe" = "PedBEAccel",
+                                                "epiage_delta_pedbe" = "PedBEDelta",
+                                                "epiage_pc_phenoage" = "PCPhenoAgeAge",
+                                                "epiage_accel_pc_phenoage" = "PCPhenoAgeAccel",
+                                                "epiage_delta_pc_phenoage" = "PCPhenoAgeDelta",
+                                                "epiage_phenoage" = "PhenoAgeAge",
+                                                "epiage_accel_phenoage" = "PhenoAgeAccel",
+                                                "epiage_delta_phenoage" = "PhenoAgeDelta",
+                                                "epiage_wu" = "WuAge",
+                                                "epiage_accel_wu" = "WuAccel",
+                                                "epiage_delta_wu" = "WuDelta",
+                                                "epiage_grimage2" = "GrimAge2Age",
+                                                "epiage_accel_grimage2" = "GrimAge2Accel",
+                                                "epiage_delta_grimage2" = "GrimAge2Delta",
+                                                "epiage_pc_grimage" = "PCGrimAgeAge",
+                                                "epiage_accel_pc_grimage" = "PCGrimAgeAccel",
+                                                "epiage_delta_pc_grimage" = "PCGrimAgeDelta",
+                                                "epiage_grimage" = "GrimAgeAge",
+                                                "epiage_accel_grimage" = "GrimAgeAccel",
+                                                "epiage_delta_grimage" = "GrimAgeDelta",
+                                                "dunedin_pace" = "DunedinPACE"))
+
+# append
+longitudinal_epiclocks_saliva <- full_join(longitudinal_epiclocks_saliva, icc_epiclocks_saliva, join_by("epiclock" == "name"))
+
+# round all numerical values to 4 digits
+longitudinal_epiclocks_saliva <- round_values(longitudinal_epiclocks_saliva) 
+
+# export
+write_xlsx(longitudinal_epiclocks_saliva, path = "05_tables_for_publication/etable_8_longitudinal_epiclocks_saliva.xlsx", col_names = TRUE, format_headers = TRUE)
+```
+
+
+# Analysis: Epigenetic aging measures
+
+## Correlations between timepoints (per tissue) with and without cell type correction
+
+### Blood
+```{r}
+## no cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(!contains("resid")) %>%
+  select(!contains("saliva")) %>%
+  select(contains("score") | starts_with(c("epigenetic", "epiage_telo", "epiage_pc_telo"))) %>%
+  relocate(contains("T2"), .after = contains("T0"))
+  
+# create correlation matrix
+corrmat_episcores_blood_nocelltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_episcores_blood_nocelltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+
+## cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(contains("resid")) %>%
+  select(!contains("saliva")) %>%
+  select(contains("score") | starts_with(c("epigenetic", "epiage_telo", "epiage_pc_telo"))) %>%
+  relocate(starts_with("alcohol"), .before = starts_with("epigenetic_bmi")) %>%
+  relocate(contains("T2"), .after = contains("T0")) 
+  
+# create correlation matrix
+corrmat_episcores_blood_celltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_episcores_blood_celltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+```
+
+### Saliva
+```{r}
+## no cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(!contains("resid")) %>%
+  select(contains("saliva")) %>%
+  select(contains("score") | starts_with(c("epigenetic", "epiage_telo", "epiage_pc_telo"))) %>%
+  relocate(contains("T2"), .after = contains("T0"))
+  
+# create correlation matrix
+corrmat_episcores_saliva_nocelltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_episcores_saliva_nocelltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+
+## cell type correction
+# subset data
+temp <- all_cross_tissue_wide %>%
+  select(contains("resid")) %>%
+  select(contains("saliva")) %>%
+  select(contains("score") | starts_with(c("epigenetic", "epiage_telo", "epiage_pc_telo"))) %>%
+  relocate(starts_with("alcohol"), .before = starts_with("epigenetic_bmi")) %>%
+  relocate(contains("T2"), .after = contains("T0"))
+  
+# create correlation matrix
+corrmat_episcores_saliva_celltypes <- cor(temp, use = "complete.obs", method = "pearson")
+# test for significance
+pmat_episcores_saliva_celltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE)
+```
+
+### Combined plot: prepare data blood
+```{r}
+## without cell types
+# format correlation matrix diagonal into table
+mat = corrmat_episcores_blood_nocelltypes
+rows <- grep("T0$", rownames(mat), value = TRUE)
+cols <- grep("T2$", colnames(mat), value = TRUE)
+corrmat_scores_nocell_blood <- as.matrix(diag(mat[rows, cols]))
+rownames(corrmat_scores_nocell_blood) <- rename_scores(rows)
+colnames(corrmat_scores_nocell_blood) <- "episcore"
+
+# format p-value matrix diagonal into table
+mat = pmat_episcores_blood_nocelltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_scores_nocell_blood <- as.matrix(diag(mat[rows, cols]))
+rownames(pmat_scores_nocell_blood) <- rename_scores(rows)
+colnames(pmat_scores_nocell_blood) <- "episcore"
+
+## without cell types
+# format correlation matrix diagonal into table
+mat = corrmat_episcores_blood_celltypes
+rows <- grep("T0$", rownames(mat), value = TRUE)
+cols <- grep("T2$", colnames(mat), value = TRUE)
+corrmat_scores_cell_blood <- as.matrix(diag(mat[rows, cols]))
+rownames(corrmat_scores_cell_blood) <- rename_scores(rows)
+colnames(corrmat_scores_cell_blood) <- "episcore"
+
+# format p-value matrix diagonal into table
+mat = pmat_episcores_blood_celltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_scores_cell_blood <- as.matrix(diag(mat[rows, cols]))
+rownames(pmat_scores_cell_blood) <- rename_scores(rows)
+colnames(pmat_scores_cell_blood) <- "episcore"
+```
+
+### Combined plot: prepare data saliva
+```{r}
+## without cell types
+# format correlation matrix diagonal into table
+mat = corrmat_episcores_saliva_nocelltypes
+rows <- grep("T0$", rownames(mat), value = TRUE)
+cols <- grep("T2$", colnames(mat), value = TRUE)
+corrmat_scores_nocell_saliva <- as.matrix(diag(mat[rows, cols]))
+rownames(corrmat_scores_nocell_saliva) <- rename_scores(rows)
+colnames(corrmat_scores_nocell_saliva) <- "episcore"
+
+# format p-value matrix diagonal into table
+mat = pmat_episcores_saliva_nocelltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_scores_nocell_saliva <- as.matrix(diag(mat[rows, cols]))
+rownames(pmat_scores_nocell_saliva) <- rename_scores(rows)
+colnames(pmat_scores_nocell_saliva) <- "episcore"
+
+## without cell types
+# format correlation matrix diagonal into table
+mat = corrmat_episcores_saliva_celltypes
+rows <- grep("T0$", rownames(mat), value = TRUE)
+cols <- grep("T2$", colnames(mat), value = TRUE)
+corrmat_scores_cell_saliva <- as.matrix(diag(mat[rows, cols]))
+rownames(corrmat_scores_cell_saliva) <- rename_scores(rows)
+colnames(corrmat_scores_cell_saliva) <- "episcore"
+
+# format p-value matrix diagonal into table
+mat = pmat_episcores_saliva_celltypes$p
+rows <- grep("_T0$", rownames(mat), value = TRUE)
+cols <- grep("_T2$", colnames(mat), value = TRUE)
+pmat_scores_cell_saliva <- as.matrix(diag(mat[rows, cols]))
+rownames(pmat_scores_cell_saliva) <- rename_scores(rows)
+colnames(pmat_scores_cell_saliva) <- "episcore"
+```
+
+### Combined plot: arrange final plot (eFigure 4B)
+```{r}
+# initialize graphics device
+tiff(file = "04_figures/efigure_4b_corrplot_all_episcores_across_time.png", height = 10, width = 5, units = 'in', res = 700)
+par(mfrow=c(2,2),
+    oma = c(0,0,4,0))
+# Plot 1: blood without cell types
+corrplot(corr = corrmat_scores_nocell_blood,
+         method = "color",
+         type = "full",
+         col = GyRd_palette,
+         addCoef.col = "black",
+         tl.col = "black",
+         tl.cex = 1,
+         tl.srt = 45,
+         number.cex = 1,
+         cl.pos = "n",
+         p.mat = pmat_scores_nocell_blood,
+         sig.level = 0.05,
+         insig = "label_sig",
+         pch = "       *",
+         pch.col = "lightblue",
+         pch.cex = 1.2,
+         na.label = "NA",
+         mar = c(0,0,0,1))
+mtext("B          Correlation within scores over time", side=3, line=6, at = 1.75, cex = 1.2, font = 2)
+mtext("without cell type correction", side=3, line=4, cex = 1)
+# Plot 2: blood with cell types
+par(xpd = FALSE)
+corrplot(corr = corrmat_scores_cell_blood,
+         method = "color",
+         type = "full",
+         col = GyRd_palette,
+         addCoef.col = "black",
+         tl.col = "black",
+         tl.cex = 1,
+         tl.srt = 45,
+         number.cex = 1,
+         cl.pos = "r",
+         cl.align.text = "l",
+         cl.offset = 0.15,
+         cl.ratio = 0.4,
+         p.mat = pmat_scores_cell_blood,
+         sig.level = 0.05,
+         insig = "label_sig",
+         pch = "       *",
+         pch.col = "lightblue",
+         pch.cex = 1.2,
+         na.label = "NA",
+         mar = c(0,0,0,1))
+mtext("with cell type correction", side=3, line=4, cex = 1)
+# Plot 3: saliva without cell types
+corrplot(corr = corrmat_scores_nocell_saliva,
+         method = "color",
+         type = "full",
+         col = GyBu_palette,
+         addCoef.col = "black",
+         tl.col = "black",
+         tl.cex = 1,
+         tl.srt = 45,
+         number.cex = 1,
+         cl.pos = "n",
+         p.mat = pmat_scores_nocell_saliva,
+         sig.level = 0.05,
+         insig = "label_sig",
+         pch = "       *",
+         pch.col = "orange",
+         pch.cex = 1.2,
+         na.label = "NA",
+         mar = c(0,0,0,1))
+# Plot 4: saliva with cell types
+corrplot(corr = corrmat_scores_cell_saliva,
+         method = "color",
+         type = "full",
+         col = GyBu_palette,
+         addCoef.col = "black",
+         tl.col = "black",
+         tl.cex = 1,
+         tl.srt = 45,
+         number.cex = 1,
+         cl.pos = "r",
+         cl.align.text = "l",
+         cl.offset = 0.15,
+         cl.ratio = 0.4,
+         p.mat = pmat_scores_cell_saliva,
+         sig.level = 0.05,
+         insig = "label_sig",
+         pch = "       *",
+         pch.col = "orange",
+         pch.cex = 1.2,
+         na.label = "NA",
+         mar = c(0,0,0,1))
+# shut off
+dev.off()
+```
+
+## Calculate ICCs, combine with longitudinal correlations, export
+
+### Epigenetic scores (blood)
+
+#### Prepare blood longitudinal correlations for export
+
+```{r}
+# reshape
+# corrmat_nocell
+corrmat_scores_nocell_blood <- as.data.frame(corrmat_scores_nocell_blood)
+colnames(corrmat_scores_nocell_blood) <- "cor"
+corrmat_scores_nocell_blood <- corrmat_scores_nocell_blood %>%
+  rownames_to_column(var = "episcore")
+# pmat_nocell
+pmat_scores_nocell_blood <- as.data.frame(pmat_scores_nocell_blood)
+colnames(pmat_scores_nocell_blood) <- "p"
+pmat_scores_nocell_blood <- pmat_scores_nocell_blood %>%
+  rownames_to_column(var = "episcore")
+# corrmat_cell
+corrmat_scores_cell_blood <- as.data.frame(corrmat_scores_cell_blood) 
+colnames(corrmat_scores_cell_blood) <- "cor_celltype_adjusted"
+corrmat_scores_cell_blood <- corrmat_scores_cell_blood %>%
+  rownames_to_column(var = "episcore")
+# pmat_cell
+pmat_scores_cell_blood <- as.data.frame(pmat_scores_cell_blood) 
+colnames(pmat_scores_cell_blood) <- "p_celltype_adjusted"
+pmat_scores_cell_blood <- pmat_scores_cell_blood %>%
+  rownames_to_column(var = "episcore")
+
+# combine 
+correlations_episcores <- full_join(corrmat_scores_nocell_blood, pmat_scores_nocell_blood, by = "episcore")
+correlations_episcores <- full_join(correlations_episcores, corrmat_scores_cell_blood, by = "episcore")
+correlations_episcores <- full_join(correlations_episcores, pmat_scores_cell_blood, by = "episcore")
+
+# run FDR correction
+correlations_episcores <- correlations_episcores %>%
+  mutate(p_fdr = p.adjust(
+    c(correlations_episcores$p, 
+      correlations_episcores$p_celltype_adjusted), 
+    method = "fdr")[1:length(correlations_episcores$p)],
+         p_fdr_celltype_adjusted = p.adjust(
+           c(correlations_episcores$p, 
+             correlations_episcores$p_celltype_adjusted), 
+           method = "fdr")[(length(correlations_episcores$p)+1):(2*length(correlations_episcores$p))])
+
+```
+
+#### Calculate temporal ICCs of score estimates in blood
+
+```{r}
+# get names of all epigenetic aging measures
+scorenames <- gsub("_blood", "", 
+                   colnames(all_cross_tissue %>%
+  select(!contains("resid")) %>%
+  select(!contains("saliva")) %>%
+  select(contains("score") | starts_with(c("epigenetic", "epiage_telo", "epiage_pc_telo")))))
+
+# define empty results object
+icc_episcores_blood <- as.data.frame(matrix(nrow = 7, ncol = 0))
+# loop over all episcores measures
+# for each episcore, calculate ICC2 (random effects) with and without cell type correction
+for(i in 1:length(scorenames)) {
+  score = scorenames[i]
+  icc_nocelltype = ICC(select(all_cross_tissue_wide, 
+                        paste0(score, "_blood_T0"), paste0(score, "_blood_T2")))
+  icc_celltype = ICC(select(all_cross_tissue_wide,
+                            paste0(score, "_resid_blood_T0"), paste0(score, "_resid_blood_T2")))
+  icc = as.data.frame(matrix(nrow = 1, ncol = 0))
+  icc$name = score
+  icc$icc = filter(icc_nocelltype$results, type == "ICC2")$ICC
+  icc$icc_lower = filter(icc_nocelltype$results, type == "ICC2")$"lower bound"
+  icc$icc_upper = filter(icc_nocelltype$results, type == "ICC2")$"upper bound"
+  icc$icc_celltype_adjusted = filter(icc_celltype$results, type == "ICC2")$ICC
+  icc$icc_lower_celltype_adjusted = filter(icc_celltype$results, type == "ICC2")$"lower bound"
+  icc$icc_upper_celltype_adjusted = filter(icc_celltype$results, type == "ICC2")$"upper bound"
+  # append to results
+  icc_episcores_blood <- rbind(icc_episcores_blood, icc)
+}
+```
+
+#### Export blood longitudinal correlations as table
+
+```{r}
+# rename episcores
+icc_episcores_blood$name <- rename_scores(icc_episcores_blood$name)
+
+# append ICC
+correlations_episcores <- full_join(correlations_episcores, icc_episcores_blood, join_by("episcore" == "name"))
+
+# round values
+correlations_episcores <- round_values(correlations_episcores)
+
+# export
+write_xlsx(correlations_episcores, path = "05_tables_for_publication/etable_9_longitudinal_episcores_blood.xlsx", col_names = TRUE, format_headers = TRUE)
+
+```
+
+### Epigenetic scores (saliva)
+
+#### Prepare saliva longitudinal correlations for export
+
+```{r}
+# reshape
+# corrmat_nocell
+corrmat_scores_nocell_saliva <- as.data.frame(corrmat_scores_nocell_saliva)
+colnames(corrmat_scores_nocell_saliva) <- "cor"
+corrmat_scores_nocell_saliva <- corrmat_scores_nocell_saliva %>%
+  rownames_to_column(var = "episcore")
+# pmat_nocell
+pmat_scores_nocell_saliva <- as.data.frame(pmat_scores_nocell_saliva)
+colnames(pmat_scores_nocell_saliva) <- "p"
+pmat_scores_nocell_saliva <- pmat_scores_nocell_saliva %>%
+  rownames_to_column(var = "episcore")
+# corrmat_cell
+corrmat_scores_cell_saliva <- as.data.frame(corrmat_scores_cell_saliva) 
+colnames(corrmat_scores_cell_saliva) <- "cor_celltype_adjusted"
+corrmat_scores_cell_saliva <- corrmat_scores_cell_saliva %>%
+  rownames_to_column(var = "episcore")
+# pmat_cell
+pmat_scores_cell_saliva <- as.data.frame(pmat_scores_cell_saliva) 
+colnames(pmat_scores_cell_saliva) <- "p_celltype_adjusted"
+pmat_scores_cell_saliva <- pmat_scores_cell_saliva %>%
+  rownames_to_column(var = "episcore")
+
+# combine 
+correlations_episcores <- full_join(corrmat_scores_nocell_saliva, pmat_scores_nocell_saliva, by = "episcore")
+correlations_episcores <- full_join(correlations_episcores, corrmat_scores_cell_saliva, by = "episcore")
+correlations_episcores <- full_join(correlations_episcores, pmat_scores_cell_saliva, by = "episcore")
+
+# run FDR correction
+correlations_episcores <- correlations_episcores %>%
+  mutate(p_fdr = p.adjust(
+    c(correlations_episcores$p, 
+      correlations_episcores$p_celltype_adjusted), 
+    method = "fdr")[1:length(correlations_episcores$p)],
+         p_fdr_celltype_adjusted = p.adjust(
+           c(correlations_episcores$p, 
+             correlations_episcores$p_celltype_adjusted), 
+           method = "fdr")[(length(correlations_episcores$p)+1):(2*length(correlations_episcores$p))])
+```
+
+#### Calculate temporal ICCs of score estimates in saliva
+
+```{r}
+# get names of all epigenetic aging measures
+scorenames <- gsub("_saliva", "", 
+                   colnames(all_cross_tissue %>%
+  select(!contains("resid")) %>%
+  select(contains("saliva")) %>%
+  select(contains("score") | starts_with(c("epigenetic", "epiage_telo", "epiage_pc_telo")))))
+
+# define empty results object
+icc_episcores_saliva <- as.data.frame(matrix(nrow = 7, ncol = 0))
+# loop over all episcores measures
+# for each episcore, calculate ICC2 (random effects) with and without cell type correction
+for(i in 1:length(scorenames)) {
+  score = scorenames[i]
+  icc_nocelltype = ICC(select(all_cross_tissue_wide, 
+                        paste0(score, "_saliva_T0"), paste0(score, "_saliva_T2")))
+  icc_celltype = ICC(select(all_cross_tissue_wide,
+                            paste0(score, "_resid_saliva_T0"), paste0(score, "_resid_saliva_T2")))
+  icc = as.data.frame(matrix(nrow = 1, ncol = 0))
+  icc$name = score
+  icc$icc = filter(icc_nocelltype$results, type == "ICC2")$ICC
+  icc$icc_lower = filter(icc_nocelltype$results, type == "ICC2")$"lower bound"
+  icc$icc_upper = filter(icc_nocelltype$results, type == "ICC2")$"upper bound"
+  icc$icc_celltype_adjusted = filter(icc_celltype$results, type == "ICC2")$ICC
+  icc$icc_lower_celltype_adjusted = filter(icc_celltype$results, type == "ICC2")$"lower bound"
+  icc$icc_upper_celltype_adjusted = filter(icc_celltype$results, type == "ICC2")$"upper bound"
+  # append to results
+  icc_episcores_saliva <- rbind(icc_episcores_saliva, icc)
+}
+```
+
+#### Export saliva longitudinal correlations as table
+
+```{r}
+# rename episcores
+icc_episcores_saliva$name <- rename_scores(icc_episcores_saliva$name)
+
+# append ICC
+correlations_episcores <- full_join(correlations_episcores, icc_episcores_saliva, join_by("episcore" == "name"))
+
+# round values
+correlations_episcores <- round_values(correlations_episcores)
+
+# export
+write_xlsx(correlations_episcores, path = "05_tables_for_publication/etable_10_longitudinal_episcores_saliva.xlsx", col_names = TRUE, format_headers = TRUE)
+
+```

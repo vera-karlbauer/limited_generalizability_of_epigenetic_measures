@@ -1,0 +1,233 @@
+---
+title: "Limited generalizability of epigenetic measures: data preparation"
+author: "Vera N. Karlbauer"
+contact: "vera_karlbauer@psych.mpg.de"
+date: "2024-12-03"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures")
+```
+
+# What this script does:
+- Aggregates and prepares epigenetic clocks and scores from blood and saliva in Kids2Health cohorts SP1/2/4. 
+- Creates versions of all epigenetic clocks, scores, and acceleration measures residualized against the respective estimated cell type proportions (epithelial cells for saliva, everything but neutrophils for blood). 
+- Exports complete dataset and "inner join" (children with both tissues only). 
+
+## Step 0: Load packages
+
+```{r}
+# load packages
+library(rmarkdown)
+library(dplyr)
+library(tibble)
+library(janitor)
+
+```
+
+## Step 1: Load data
+
+```{r}
+## epigenetic scores
+# blood
+load("../../../01_data/02_proc/04_epi_scores/blood/epigenetic_bmi_score_do_2023_K2H_SP124_blood.Rdata")
+load("../../../01_data/02_proc/04_epi_scores/blood/epigenetic_bmi_score_wahl_2017_K2H_SP124_blood.Rdata")
+load("../../../01_data/02_proc/04_epi_scores/blood/epigenetic_crp_score_wielscher_2022_K2H_SP124_blood.Rdata")
+load("../../../01_data/02_proc/04_epi_scores/blood/epigenetic_crp_score_ligthart_2016_K2H_SP124_blood.Rdata")
+load("../../../01_data/02_proc/04_epi_scores/blood/epigenetic_g_K2H_SP124_blood.Rdata")
+load("../../../01_data/02_proc/04_epi_scores/blood/smoking_exposure_K2H_SP124_blood.Rdata")
+# saliva
+load("../../../01_data/02_proc/04_epi_scores/saliva/epigenetic_bmi_score_do_2023_K2H_SP124_saliva.Rdata")
+load("../../../01_data/02_proc/04_epi_scores/saliva/epigenetic_bmi_score_wahl_2017_K2H_SP124_saliva.Rdata")
+load("../../../01_data/02_proc/04_epi_scores/saliva/epigenetic_crp_score_wielscher_2022_K2H_SP124_saliva.Rdata")
+load("../../../01_data/02_proc/04_epi_scores/saliva/epigenetic_crp_score_ligthart_2016_K2H_SP124_saliva.Rdata")
+load("../../../01_data/02_proc/04_epi_scores/saliva/epigenetic_g_K2H_SP124_saliva.Rdata")
+load("../../../01_data/02_proc/04_epi_scores/saliva/smoking_exposure_K2H_SP124_saliva.Rdata")
+
+## epigenetic clocks
+# blood
+load("../../../01_data/02_proc/04_epi_scores/blood/epigenetic_clocks_K2H_SP124_blood.Rdata")
+# saliva
+load("../../../01_data/02_proc/04_epi_scores/saliva/epigenetic_clocks_K2H_SP124_saliva.Rdata")
+
+## cell types
+# saliva
+load("../../../01_data/02_proc/01_epic/kids2health_sp1_2_4_saliva/processed_data/final_data/celltypes_unfiltered_saliva_MiddletonPanel.Rdata")
+celltypes_unfiltered_saliva <- celltypes_unfiltered
+# blood
+load("../../../01_data/02_proc/01_epic/kids2health_sp1_2_4_blood_new/processed_data/final_data/celltypes_unfiltered.Rdata")
+
+# phenotypes (filter relevant variables immediately)
+load("../../../01_data/02_proc/05_complete_phenotypes/full_phenotypes_K2H_SP124.Rdata")
+full_phenotypes <- full_phenotypes %>%
+  select(child_id, zeitpunkt, group, ses_total, corona_ksl_01, corona_ksl_mix01, fasd_cat, ku_bmi, bmi_percentile, iq_sonr_nonverbal, iq_wisc, crp_pgML, telomere_length_blood_ts_ratio) %>%
+  # make sure trauma group is not-numeric
+  mutate(group = as.factor(group)) %>%
+  # recode & rename ethnicity variables
+  rename(ethnicity = corona_ksl_01,
+         ethnicity_mixed_spec = corona_ksl_mix01) %>%
+  mutate(ethnicity = case_match(ethnicity, 1 ~ "White", 2 ~ "Black", 3 ~ "Asian", 4 ~ "Mixed", 5 ~ "Other"),
+         ethnicity_mixed_spec = case_match(ethnicity_mixed_spec, 1 ~ "Mixed: White/Black", 2 ~ "Mixed: Asian/Black",
+                                           3 ~ "Mixed: White/Asian", 4 ~ "Mixed: Other")) %>%
+  # combine ethnicity variables into one variable
+  mutate(ethnicity = case_when(ethnicity == "Mixed" ~ ethnicity_mixed_spec, TRUE ~ ethnicity)) %>%
+  select(-ethnicity_mixed_spec)
+
+# blood betas (restrict to smoking CpG immediately)
+load("../../../01_data/02_proc/01_epic/kids2health_sp1_2_4_blood_new/processed_data/final_data/Betas_clean_unfiltered_quantile_bmiq_combated_pseudo_v1_final.Rdata") 
+smoking_cpg_blood <- as.data.frame(t(Betas_clean_unfiltered_quantile_bmiq_combated_pseudo_v1)) %>%
+  rownames_to_column(var = "arrayid") %>%
+  select(arrayid, cg05575921)
+remove(Betas_clean_unfiltered_quantile_bmiq_combated_pseudo_v1)
+  
+# saliva betas (restrict to smoking CpG immediately)
+load("../../../01_data/02_proc/01_epic/kids2health_sp1_2_4_saliva/processed_data/final_data/Betas_clean_unfiltered_quantile_bmiq_combated_pseudo_v1_final.Rdata")
+smoking_cpg_saliva <- as.data.frame(t(Betas_clean_unfiltered_quantile_bmiq_combated_pseudo_v1)) %>%
+  rownames_to_column(var = "arrayid") %>%
+  select(arrayid, cg05575921)
+remove(Betas_clean_unfiltered_quantile_bmiq_combated_pseudo_v1)
+
+```
+
+## Step 2: Aggregate blood data
+
+```{r}
+all_blood <- full_join(k2h_blood_epiclocks, epigenetic_bmi_score_do_2023_blood, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"))
+all_blood <- full_join(all_blood, epigenetic_bmi_score_wahl_2017_blood, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"))
+all_blood <- full_join(all_blood, epigenetic_crp_score_wielscher_2022_blood, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"))
+all_blood <- full_join(all_blood, epigenetic_crp_score_ligthart_2016_blood, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"))
+all_blood <- full_join(all_blood, epigenetic_g, by = c("sample_ID", "arrayid"))
+all_blood <- full_join(all_blood, smoking_exposure, by = c("sample_ID", "arrayid"))
+all_blood <- full_join(all_blood, smoking_cpg_blood, by = c("arrayid"))
+all_blood <- full_join(all_blood, celltypes_unfiltered, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"  = "timepoint", "teilprojekt" = "subproject"))
+```
+
+## Step 4: Aggregate saliva data
+
+```{r}
+all_saliva <- full_join(k2h_saliva_epiclocks, epigenetic_bmi_score_do_2023_saliva, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"))
+all_saliva <- full_join(all_saliva, epigenetic_bmi_score_wahl_2017_saliva, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"))
+all_saliva <- full_join(all_saliva, epigenetic_crp_score_wielscher_2022_saliva, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"))
+all_saliva <- full_join(all_saliva, epigenetic_crp_score_ligthart_2016_saliva, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"))
+all_saliva <- full_join(all_saliva, epigenetic_g_saliva, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"))
+all_saliva <- full_join(all_saliva, smoking_exposure_score_saliva, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"))
+all_saliva <- full_join(all_saliva, smoking_cpg_saliva, by = c("arrayid"))
+all_saliva <- full_join(all_saliva, celltypes_unfiltered_saliva, by = c("arrayid"))
+```
+
+## Step 5: Create cell type residualized versions of scores/clocks
+
+```{r}
+## blood
+# prepare data
+blood4correction <- all_blood %>%
+  select(sample_ID, 
+         starts_with("epiage"),
+         starts_with("epigenetic"),
+         ends_with("score"),
+         dunedin_pace,
+         CD4Tnv, Baso, CD4Tmem, Bmem, Bnv, Treg, CD8Tmem, CD8Tnv, Eos, NK, Mono) %>%
+  column_to_rownames(var = "sample_ID")
+# residualize for all cell types except neutrophils
+blood_celltype_corrected <- c()
+for (i in 1:(ncol(blood4correction)-11)) {
+  blood_temp <- lm(blood4correction[,i] ~ 
+                     blood4correction$CD4Tnv + blood4correction$Baso + blood4correction$CD4Tmem + blood4correction$Bmem + blood4correction$Bnv + blood4correction$Treg + blood4correction$CD8Tmem + blood4correction$CD8Tnv + blood4correction$Eos + blood4correction$NK + blood4correction$Mono
+                   )
+  blood_celltype_corrected<-cbind(blood_celltype_corrected,blood_temp$residuals)
+  }
+# clean up and append
+colnames(blood_celltype_corrected) <- paste0(colnames(blood4correction)[1:(ncol(blood4correction)-11)], "_resid")
+rownames(blood_celltype_corrected) <- rownames(blood4correction)
+blood_celltype_corrected <- as.data.frame(blood_celltype_corrected) %>%
+  rownames_to_column(var = "sample_ID")
+all_blood <- left_join(all_blood, blood_celltype_corrected)
+
+## saliva
+# prepare data
+saliva4correction <- all_saliva %>%
+  select(sample_ID, starts_with("epiage"),
+         starts_with("epigenetic"),
+         ends_with("score"),
+         dunedin_pace,
+         Epithelial) %>%
+  column_to_rownames(var = "sample_ID")
+# residualize for epithelial cells
+clocks_saliva_celltype_corrected <- c()
+for (i in 1:(ncol(saliva4correction)-1)) {
+    formula = paste(colnames(saliva4correction)[i], "~ Epithelial")
+    saliva_temp <- lm(data = saliva4correction, formula = formula, na.action = "na.exclude")
+  clocks_saliva_celltype_corrected <- cbind(clocks_saliva_celltype_corrected,resid(saliva_temp))
+}
+# clean up and append
+colnames(clocks_saliva_celltype_corrected) <- paste0(colnames(saliva4correction)[1:(ncol(saliva4correction)-1)], "_resid")
+rownames(clocks_saliva_celltype_corrected) <- rownames(saliva4correction)
+clocks_saliva_celltype_corrected <- as.data.frame(clocks_saliva_celltype_corrected) %>%
+  rownames_to_column(var = "sample_ID")
+all_saliva <- left_join(all_saliva, clocks_saliva_celltype_corrected)
+
+```
+
+
+## Step 6: Combine blood and saliva data & append phenotypes
+
+```{r}
+# combine tissues
+all_cross_tissue <- full_join(all_blood, all_saliva, 
+                              by = c("child_id", "zeitpunkt", "teilprojekt", "sex"),
+                              suffix = c("_blood", "_saliva"))
+
+# rename cell types
+all_cross_tissue <- all_cross_tissue %>%
+  rename(
+    "CD4Tnv_blood" = "CD4Tnv",
+         "Baso_blood" = "Baso",
+         "CD4Tmem_blood" = "CD4Tmem",
+         "Bmem_blood" = "Bmem",
+         "Bnv_blood" = "Bnv",
+         "Treg_blood" = "Treg",
+         "CD8Tmem_blood" = "CD8Tmem",
+         "CD8Tnv_blood" = "CD8Tnv",
+         "Eos_blood" = "Eos",
+         "NK_blood" = "NK",
+         "Neu_blood" = "Neu",
+         "Mono_blood" = "Mono",
+         "Epithelial_saliva" = "Epithelial",
+         "Leukocytes_saliva" = "Leukocytes")
+
+# rename age, timepoint, subproject variables
+all_cross_tissue <- all_cross_tissue %>%
+  rename("timepoint" = "zeitpunkt",
+         "subproject" = "teilprojekt")
+
+# append phenotypes
+all_cross_tissue <- left_join(all_cross_tissue, full_phenotypes, by = c("child_id", "timepoint" = "zeitpunkt"))
+
+# create chronological age variable (age at blood or saliva sample, only used for plotting)
+# age at blood and saliva sampling only deviates for 3 observations (9-35 days difference) - chronological age is set to saliva age for plotting, but is not used for statistical analysis
+all_cross_tissue <- all_cross_tissue %>%
+  mutate(chrono_age = case_when(
+    is.na(bio_blood_age) ~ bio_saliva_age,
+    is.na(bio_saliva_age) ~ bio_blood_age, 
+    TRUE ~ bio_saliva_age))
+  
+# split off children with both tissues only
+all_cross_tissue_inner <- all_cross_tissue %>%
+  filter(!is.na(epiage_horvath_blood) & !is.na(epiage_horvath_saliva))
+```
+
+## Step 7: Export data
+
+```{r}
+# full dataset
+save(all_cross_tissue, file = "../../../01_data/02_proc/09_cross_tissue/all_cross_tissue.Rdata")
+
+# children with both tissues only
+save(all_cross_tissue_inner, file = "../../../01_data/02_proc/09_cross_tissue/all_cross_tissue_inner.Rdata")
+
+```
+

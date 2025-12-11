@@ -1,0 +1,517 @@
+---
+title: "Limited generalizability of epigenetic measures: epigenetic score performance"
+author: "Vera N. Karlbauer"
+contact: "vera_karlbauer@psych.mpg.de"
+date: "2024-12-04"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures", 
+                     digits = 4, scipen = 6)
+```
+
+# What this script does:
+- Test epigenetic score performance (= linear association with corresponding measured phenotype).
+- For each epigenetic score, test its association with phenotype by tissue.
+- Linear model: episcore ~ phenotype + tissue + phenotype * tissue.
+- Significant phenotype * tissue interactions indicate significant performance differences between tissues.
+- Additionally (to better characterize strength of linear association), calculate Spearman correlation between epigenetic score and phenotype separately per tissue.
+- Repeat all models with and without cell type correction.
+- Visualize all linear models as dotplots with regression lines; add Pearson correlation per tissue as label.
+- Combine lineplots for each epigenetic score with/without celltype correction into one plot (eFigure 3).
+- Select exemplary line plots (for CRP Wielscher, DNAmTL) and export as Figure 2.
+- Export results as eTable 4.
+
+# Setup
+### Step 0: Load packages
+
+```{r, include = FALSE}
+# load packages
+library(rmarkdown)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(coxme)
+library(ggpubr)
+library(RColorBrewer)
+library(stringr)
+library(corrplot)
+library(writexl)
+```
+
+### Step 1: Source functions and utilities
+
+```{r}
+source("./00_functions/01_functions.R")
+source("./00_functions/02_utilities.R")
+```
+
+### Step 2: Load data
+
+```{r, include = FALSE}
+load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue_inner.Rdata")
+# kinship matrix
+load("../../../01_data/02_proc/02_genotypes/qc-imputation_output/genotype_data/01_qc/13_ancestry_rels/K2H_SP1_2_3_4_genetic_kinship_matrix.Rdata")
+```
+
+### Step 3: Reshape data to long format
+
+```{r}
+all_cross_tissue_inner <- all_cross_tissue_inner %>%
+  filter(timepoint == "T0") %>%
+  select(child_id, 
+         sample_ID_blood, 
+         sample_ID_saliva,
+         starts_with("epigenetic"),
+         starts_with("epiage_telo_"),
+         starts_with("epiage_pc_telo_"),
+         bmi_percentile,
+         ku_bmi,
+         crp_pgML,
+         telomere_length_blood_ts_ratio,
+         iq_sonr_nonverbal)
+
+# log-normalize CRP (also done in original paper)
+all_cross_tissue_inner <- all_cross_tissue_inner %>%
+  mutate(crp_pgML_ln = log(crp_pgML))
+
+# transform to long format
+episcores_long <- pivot_longer(all_cross_tissue_inner,
+                               cols = starts_with(c("sample_ID_", "epigenetic", "epiage_telo_", "epiage_pc_telo")),
+                               names_to = c(".value", "tissue"),
+                               names_pattern = "^(.*)_(blood|saliva)$") 
+
+# exclude all children not in kinship matrix (no genotype data available = 2 kids = 4 observations)
+episcores_kin <- episcores_long %>%
+  filter(child_id %in% rownames(k2H_pcrelate_kinship_matrix))
+
+# filter kinship matrix
+kinship <- k2H_pcrelate_kinship_matrix[unique(episcores_kin$child_id), unique(episcores_kin$child_id)]
+
+# define epigenetic scores & corresponding phenotypes
+unique_scores <- data.frame(cbind(c("epigenetic_bmi_score_do_2023", "epigenetic_bmi_score_wahl_2017", "epigenetic_crp_score_wielscher_2022", 
+                   "epigenetic_crp_score_ligthart_2016", "epigenetic_g", 
+                   "epiage_telo", "epiage_pc_telo"),
+                   c("ku_bmi", "ku_bmi", "crp_pgML_ln", "crp_pgML_ln", 
+                   "iq_sonr_nonverbal", "telomere_length_blood_ts_ratio",
+                   "telomere_length_blood_ts_ratio")))
+colnames(unique_scores) <- c("episcore", "phenotype")
+```
+
+
+# Analysis 
+
+## Prediction models: epigenetic scores ~ corresponding phenotypes
+
+### Run kinship models without cell type correction for each epigenetic score
+
+```{r}
+# create empty results object
+results_kin_nocelltypes <- data.frame(matrix(nrow = 0, ncol = 6))
+colnames(results_kin_nocelltypes) <- c("coef_pheno", "p_pheno", 
+                                         "coef_tissue", "p_tissue", 
+                                         "coef_interaction", 
+                                         "p_interaction")
+
+# loop linear model with phenotype, tissue, interaction and subject effect over all episcores
+for(score in unique_scores$episcore){
+  # subset data
+  pheno = filter(unique_scores, episcore == score)$phenotype
+  current_data = select(episcores_kin, score, pheno, tissue, child_id) %>%
+    rename("score" = score,
+      "pheno" = pheno)
+  # fit model
+  fit = lmekin(formula = score ~ pheno + pheno*tissue + (1 | child_id),
+                       data = current_data,
+                       varlist = kinship,
+                       na.action = "na.omit")
+  sumstats = extract_coxme_table(fit)
+  # extract results
+  coefs = data.frame(matrix(nrow = 1, ncol = 0))
+  coefs$episcore = score
+  coefs$phenotype = pheno
+  coefs$coef_pheno = sumstats["pheno",]$beta
+  coefs$p_pheno = sumstats["pheno",]$p
+  coefs$coef_tissue = sumstats["tissuesaliva",]$beta
+  coefs$p_tissue = sumstats["tissuesaliva",]$p
+  coefs$coef_interaction = sumstats["pheno:tissuesaliva",]$beta
+  coefs$p_interaction = sumstats["pheno:tissuesaliva",]$p
+  # append results
+  results_kin_nocelltypes <- rbind(results_kin_nocelltypes, coefs)
+}
+
+```
+
+### Run kinship models with cell type correction for each epigenetic score
+
+```{r}
+# list of epigenetic scores & corresponding phenotypes
+unique_scores$episcore_resid <- paste0(unique_scores$episcore, "_resid")
+
+# create empty results object
+results_kin_celltypes <- data.frame(matrix(nrow = 0, ncol = 6))
+colnames(results_kin_celltypes) <- c("coef_pheno", "p_pheno", 
+                                         "coef_tissue", "p_tissue", 
+                                         "coef_interaction", 
+                                         "p_interaction")
+
+# loop linear model with phenotype, tissue, interaction and subject effect over all episcores
+for(score in unique_scores$episcore_resid){
+  # subset data
+  pheno = filter(unique_scores, episcore_resid == score)$phenotype
+  current_data = select(episcores_kin, score, pheno, tissue, child_id) %>%
+    rename("score" = score,
+      "pheno" = pheno)
+  # fit model
+  fit = lmekin(formula = score ~ pheno + pheno*tissue + (1 | child_id),
+                       data = current_data,
+                       varlist = kinship,
+                       na.action = "na.omit")
+  sumstats = extract_coxme_table(fit)
+  # extract results
+  coefs = data.frame(matrix(nrow = 1, ncol = 0))
+  coefs$episcore = score
+  coefs$phenotype = pheno
+  coefs$coef_pheno = sumstats["pheno",]$beta
+  coefs$p_pheno = sumstats["pheno",]$p
+  coefs$coef_tissue = sumstats["tissuesaliva",]$beta
+  coefs$p_tissue = sumstats["tissuesaliva",]$p
+  coefs$coef_interaction = sumstats["pheno:tissuesaliva",]$beta
+  coefs$p_interaction = sumstats["pheno:tissuesaliva",]$p
+  # append results
+  results_kin_celltypes <- rbind(results_kin_celltypes, coefs)
+}
+
+```
+
+## Correlate phenotype ~ episcore for each tissue with/without adjustment
+
+```{r}
+# set up empty results object
+performance_per_tissue <- as.data.frame(matrix(nrow = 0, ncol = 10))
+colnames(performance_per_tissue) <- c("episcore", "phenotype", "cor_blood", "p_blood", "cor_blood_celltype", "p_blood_celltype", "cor_saliva", "p_saliva", "cor_saliva_celltype", "p_saliva_celltype")
+  
+for(i in 1:nrow(unique_scores)){
+  # coefficients as empty df
+  coefs = as.data.frame(matrix(nrow = 1, ncol = 0))
+  # define current clock
+  score = unique_scores$episcore[i]
+  coefs$episcore = score
+  # define current phenotype
+  pheno = unique_scores$phenotype[i]
+  coefs$phenotype = pheno
+  # correlations with age for blood and saliva with/without celltype
+  cor_blood = cor.test(all_cross_tissue_inner[,paste0(score, "_blood")],
+                       all_cross_tissue_inner[,pheno], 
+                       alternative = "two.sided", method = "pearson", use = "pairwise")
+  cor_blood_adj = cor.test(all_cross_tissue_inner[,paste0(score, "_resid_blood")],
+                       all_cross_tissue_inner[,pheno], 
+                       alternative = "two.sided", method = "pearson", use = "pairwise")
+  cor_saliva = cor.test(all_cross_tissue_inner[,paste0(score, "_saliva")],
+                       all_cross_tissue_inner[,pheno], 
+                       alternative = "two.sided", method = "pearson", use = "pairwise")
+  cor_saliva_adj = cor.test(all_cross_tissue_inner[,paste0(score, "_resid_saliva")],
+                       all_cross_tissue_inner[,pheno], 
+                       alternative = "two.sided", method = "pearson", use = "pairwise")
+  # extract coefficients
+  coefs$cor_blood = cor_blood$estimate
+  coefs$p_blood = cor_blood$p.value
+  coefs$cor_blood_celltype = cor_blood_adj$estimate
+  coefs$p_blood_celltype = cor_blood_adj$p.value
+  coefs$cor_saliva = cor_saliva$estimate
+  coefs$p_saliva = cor_saliva$p.value
+  coefs$cor_saliva_celltype = cor_saliva_adj$estimate
+  coefs$p_saliva_celltype = cor_saliva_adj$p.value
+  # append to results
+  performance_per_tissue = rbind(performance_per_tissue, coefs)
+}
+
+# FDR-correct p-values
+fdr_performance <- p.adjust(
+c(performance_per_tissue$p_blood, performance_per_tissue$p_blood_celltype, performance_per_tissue$p_saliva, performance_per_tissue$p_saliva_celltype), 
+    method = "fdr")
+performance_per_tissue <- performance_per_tissue %>%
+  mutate(p_blood_fdr = fdr_performance[1:nrow(performance_per_tissue)],
+         p_blood_celltype_fdr = fdr_performance[(1+ nrow(performance_per_tissue)):(2*nrow(performance_per_tissue))],
+         p_saliva_fdr = fdr_performance[(1+2*nrow(performance_per_tissue)):(3*nrow(performance_per_tissue))],
+         p_saliva_celltype_fdr = fdr_performance[(1+3*nrow(performance_per_tissue)):(4*nrow(performance_per_tissue))]
+         ) %>%
+  relocate(p_blood_fdr, .after = p_blood) %>%
+  relocate(p_blood_celltype_fdr, .after = p_blood_celltype) %>%
+  relocate(p_saliva_fdr, .after = p_saliva) %>%
+  relocate(p_saliva_celltype_fdr, .after = p_saliva_celltype) 
+
+# rename scores
+performance_per_tissue <- performance_per_tissue %>%
+  mutate(score_name = rename_scores(episcore))
+```
+
+## Join all values, FDR-correct, round, export as table
+
+```{r}
+# adjoin results from regression models
+temp_celltype <- results_kin_celltypes %>%
+  mutate(episcore = str_replace(episcore, "_resid", ""))
+colnames(temp_celltype) <- paste0(colnames(temp_celltype), "_celltype_adjusted")
+results_episcore_performance_kin <- full_join(results_kin_nocelltypes, temp_celltype, join_by("episcore" == "episcore_celltype_adjusted", "phenotype" == "phenotype_celltype_adjusted"))
+
+# FDR-correct interaction p-values
+fdr_performance <- p.adjust(
+    c(results_episcore_performance_kin$p_interaction,
+      results_episcore_performance_kin$p_interaction_celltype_adjusted), 
+    method = "fdr")
+results_episcore_performance_kin <- results_episcore_performance_kin %>%
+  mutate(p_interaction_fdr = fdr_performance[1:(length(fdr_performance)/2)],
+         p_interaction_fdr_celltype_adjusted = fdr_performance[(length(fdr_performance)/2 + 1):length(fdr_performance)]) %>%
+  relocate(p_interaction_fdr, .after = p_interaction) %>%
+  relocate(p_interaction_fdr_celltype_adjusted, .after = p_interaction_celltype_adjusted)
+
+# rename scores and phenotypes
+results_episcore_performance_kin <- results_episcore_performance_kin %>%
+  mutate(episcore = rename_scores(episcore),
+         phenotype = rename_phenos(phenotype))
+
+# adjoin regression models and correlation results
+results_episcore_performance_full <- full_join(results_episcore_performance_kin, select(performance_per_tissue, score_name, cor_blood, cor_blood_celltype, cor_saliva, cor_saliva_celltype), join_by("episcore" == "score_name"))
+
+# round values
+results_episcore_performance_full <- round_values(results_episcore_performance_full)
+
+# export results as table
+write_xlsx(results_episcore_performance_full, path = "05_tables_for_publication/etable_4_episcore_performance.xlsx", col_names = TRUE, format_headers = TRUE)
+```
+
+# Plotting
+
+## Individual line plots
+### Create individual lineplots for each score
+
+```{r}
+# create plots without cell type correction
+for(score in unique_scores$episcore){
+  # subset data
+  pheno = filter(unique_scores, episcore == score)$phenotype
+  current_data = select(episcores_long, score, pheno, tissue) %>%
+    rename("score" = score,
+      "pheno" = pheno)
+  # subset correlation labels
+  label_blood = paste0("r (blood) = ", round(filter(select(performance_per_tissue, episcore, cor_blood), episcore == score)$cor_blood, digits =2))
+  label_saliva = paste0("r (saliva) = ", round(filter(select(performance_per_tissue, episcore, cor_saliva), episcore == score)$cor_saliva, digits =2))
+  # define label positions
+  pos_x = 0.3
+  pos_y_blood = mean(filter(current_data, tissue == "blood")$score, na.rm = TRUE)
+  pos_y_saliva = mean(filter(current_data, tissue == "saliva")$score, na.rm = TRUE)
+  # set up ggplot
+  p = ggplot(current_data, 
+             aes(y = score, x = pheno, color = tissue, shape = tissue)) +
+    geom_point() + 
+    geom_smooth(method=lm) +
+    annotate("label",
+             label=label_blood,
+             x = min(current_data$pheno, na.rm = TRUE) + pos_x * diff(range(current_data$pheno, na.rm = TRUE)),
+             y = pos_y_blood,
+             size = 6/.pt,
+              fill = brewer.pal(n = 4, name = "Set1")[1]) + 
+    annotate("label", 
+             label=label_saliva,
+             x = min(current_data$pheno, na.rm = TRUE) + pos_x * diff(range(current_data$pheno, na.rm = TRUE)),
+             y = pos_y_saliva,
+            size = 6/.pt,
+              fill = brewer.pal(n = 4, name = "Set1")[2]) + 
+    theme_bw() +
+    theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold"),
+          axis.title.x = element_text(size = 9), axis.title.y = element_text(size = 9)) + 
+    scale_color_brewer(palette = "Set1") +
+    ggtitle(rename_scores(score)) +
+    xlab(rename_phenos(pheno)) +
+    ylab(rename_scores(score))
+    assign(paste0("lineplot_nocell_", score), p)
+}
+# create plots with cell type correction
+for(score in unique_scores$episcore_resid){
+  # subset data
+  pheno = filter(unique_scores, episcore_resid == score)$phenotype
+  current_data = select(episcores_long, score, pheno, tissue) %>%
+    rename("score" = score,
+      "pheno" = pheno)
+  # subset correlation labels
+  label_blood = paste0("r (blood) = ", round(filter(select(performance_per_tissue, episcore, cor_blood_celltype), episcore == gsub("_resid", "", score))$cor_blood, digits =2))
+  label_saliva = paste0("r (saliva) = ", round(filter(select(performance_per_tissue, episcore, cor_saliva_celltype), episcore == sub("_resid", "", score))$cor_saliva, digits =2))
+  # define label positions
+  pos_x = 0.3
+  pos_y_blood = if(filter(select(performance_per_tissue, episcore, cor_blood_celltype), episcore == gsub("_resid", "", score))$cor_blood > filter(select(performance_per_tissue, episcore, cor_saliva_celltype), episcore == gsub("_resid", "", score))$cor_saliva) mean(filter(current_data, tissue == "blood")$score, na.rm = TRUE) + 20*mean(filter(current_data, tissue == "blood")$score, na.rm = TRUE) else mean(filter(current_data, tissue == "blood")$score, na.rm = TRUE) - 20*mean(filter(current_data, tissue == "blood")$score, na.rm = TRUE)
+  pos_y_saliva = if(filter(select(performance_per_tissue, episcore, cor_blood_celltype), episcore == gsub("_resid", "", score))$cor_blood < filter(select(performance_per_tissue, episcore, cor_saliva_celltype), episcore == gsub("_resid", "", score))$cor_saliva) mean(filter(current_data, tissue == "saliva")$score, na.rm = TRUE) + 20*mean(filter(current_data, tissue == "saliva")$score, na.rm = TRUE) else mean(filter(current_data, tissue == "saliva")$score, na.rm = TRUE) - 20*mean(filter(current_data, tissue == "saliva")$score, na.rm = TRUE)
+  # plot
+  p = ggplot(current_data, 
+             aes(y = score, x = pheno, color = tissue, shape = tissue)) +
+    geom_point() + 
+    geom_smooth(method=lm) +
+        annotate("label",
+             label=label_blood,
+             x = min(current_data$pheno, na.rm = TRUE) + pos_x * diff(range(current_data$pheno, na.rm = TRUE)),
+             y = pos_y_blood,
+             size = 6/.pt,
+              fill = "#EB5355") + 
+    annotate("label", 
+             label=label_saliva,
+            x = min(current_data$pheno, na.rm = TRUE) + pos_x * diff(range(current_data$pheno, na.rm = TRUE)),
+             y = pos_y_saliva,
+            size = 6/.pt,
+              fill = "#699ECA") + 
+    theme_bw() +
+    theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold"),
+          axis.title.x = element_text(size = 9), axis.title.y = element_text(size = 9)) + 
+  scale_color_manual(values=c("#EB5355", "#699ECA")) +
+    ggtitle(rename_scores(score)) +
+    xlab(rename_phenos(pheno)) +
+    ylab(paste0("Residualized ", rename_scores(score)))
+  assign(paste0("lineplot_cell_", score), p)
+}
+
+## manually customize titles & axis labels
+# no cell type correction
+lineplot_nocell_epiage_telo <- lineplot_nocell_epiage_telo +
+    xlab("Telomere length")
+lineplot_nocell_epiage_pc_telo <- lineplot_nocell_epiage_pc_telo +
+    xlab("Telomere length")
+lineplot_nocell_epigenetic_bmi_score_do_2023 <- lineplot_nocell_epigenetic_bmi_score_do_2023 +
+  ylab("Epigenetic BMI (Do 2023)") +
+  xlab("BMI") 
+lineplot_nocell_epigenetic_bmi_score_wahl_2017 <- lineplot_nocell_epigenetic_bmi_score_wahl_2017 +
+  ylab("Epigenetic BMI (Wahl 2017)") +
+  xlab("BMI") 
+lineplot_nocell_epigenetic_crp_score_wielscher_2022 <- lineplot_nocell_epigenetic_crp_score_wielscher_2022 +
+  ylab("Epigenetic CRP (Wielscher 2022)") +
+  xlab("Log-transformed CRP")
+lineplot_nocell_epigenetic_crp_score_ligthart_2016 <- lineplot_nocell_epigenetic_crp_score_ligthart_2016 +
+  ylab("Epigenetic CRP (Ligthart 2016)") +
+  xlab("Log-transformed CRP")
+lineplot_nocell_epigenetic_g <- lineplot_nocell_epigenetic_g +
+  xlab("Non-verbal IQ")
+# with cell type correction
+lineplot_cell_epiage_telo_resid <- lineplot_cell_epiage_telo_resid  +
+  xlab("Telomere length")
+lineplot_cell_epiage_pc_telo_resid <- lineplot_cell_epiage_pc_telo_resid  +
+  xlab("Telomere length")
+lineplot_cell_epigenetic_bmi_score_do_2023_resid  <- lineplot_cell_epigenetic_bmi_score_do_2023_resid  +
+  ylab("Residualized epigenetic BMI (Do 2023)") 
+lineplot_cell_epigenetic_bmi_score_wahl_2017_resid  <- lineplot_cell_epigenetic_bmi_score_wahl_2017_resid  +
+  ylab("Residualized epigenetic BMI (Wahl 2017)") 
+lineplot_cell_epigenetic_crp_score_wielscher_2022_resid  <- lineplot_cell_epigenetic_crp_score_wielscher_2022_resid  +
+  ylab("Residualized epigenetic CRP (Wielscher 2022)") +
+  xlab("Log-transformed CRP")
+lineplot_cell_epigenetic_crp_score_ligthart_2016_resid  <- lineplot_cell_epigenetic_crp_score_ligthart_2016_resid  +
+  ylab("Residualized epigenetic CRP (Ligthart 2016)") +
+  xlab("Log-transformed CRP")
+lineplot_cell_epigenetic_g_resid  <- lineplot_cell_epigenetic_g_resid +
+  xlab("Non-verbal IQ")
+
+```
+
+### Export line plots per score
+
+```{r}
+for(score in unique_scores$episcore){
+  plot_nocell = paste0("lineplot_nocell_", score)
+  plot_cell = paste0("lineplot_cell_", score, "_resid")
+  combined = ggarrange(get(plot_nocell), get(plot_cell),
+                        ncol = 2,
+                        nrow = 1,
+                        common.legend = TRUE,
+                        legend = "bottom")
+  filename = paste0("./04_figures/lineplot_", score, ".png")
+  png(filename = filename, width = 20, height = 14, res = 700, units = "cm")
+  print(annotate_figure(combined,
+                top = text_grob("uncorrected                                             cell type corrected",
+                                size = 14, face = "bold")))
+  # export
+  dev.off()
+}
+
+```
+
+### Combine all line plots and export (= eFigure 3)
+
+```{r}
+## arrange & export all plots
+png(filename = "./04_figures/efigure_3_combined_lineplot_all_scores.png", 
+    width = 21, height = 30, res = 700, units = "cm")
+combined_lineplot <- ggarrange(lineplot_nocell_epigenetic_bmi_score_do_2023,
+                               lineplot_cell_epigenetic_bmi_score_do_2023_resid,
+                        lineplot_nocell_epigenetic_bmi_score_wahl_2017,
+                        lineplot_cell_epigenetic_bmi_score_wahl_2017_resid,
+                        lineplot_nocell_epigenetic_crp_score_wielscher_2022,
+                        lineplot_cell_epigenetic_crp_score_wielscher_2022_resid,
+                        lineplot_nocell_epigenetic_crp_score_ligthart_2016,
+                        lineplot_cell_epigenetic_crp_score_ligthart_2016_resid,
+                        lineplot_nocell_epiage_telo,
+                        lineplot_cell_epiage_telo_resid,
+                        lineplot_nocell_epiage_pc_telo,
+                        lineplot_cell_epiage_pc_telo_resid,
+                        lineplot_nocell_epigenetic_g,
+                        lineplot_cell_epigenetic_g_resid,
+                        labels = c("A", "", "B", "", "C", "", "D", "",
+                                   "E", "", "F", "", "G", ""),
+                        hjust = -1.5,
+                        ncol = 4,
+                        nrow = 4,
+                        align = "hv",
+                        common.legend = TRUE,
+                        legend = "bottom")
+
+annotate_figure(combined_lineplot,
+                top = text_grob("         uncorrected            cell type corrected           uncorrected            cell type corrected",
+                                                     size = 14, face = "bold"), 
+                fig.lab.pos = "top")
+
+# export
+dev.off()
+
+```
+
+## Plot selected results only (Figure 2 for publication)
+
+```{r}
+# reduce y axis label font and increase annotation label font, finetune plots
+lineplot_nocell_epigenetic_crp_score_wielscher_2022 <- lineplot_nocell_epigenetic_crp_score_wielscher_2022 +
+  ggtitle("CRP (Wielscher 2022, unadjusted)") +
+  ylab("Epigenetic CRP")
+lineplot_nocell_epigenetic_crp_score_wielscher_2022$layers[[3]]$aes_params$size = 10/.pt
+lineplot_nocell_epigenetic_crp_score_wielscher_2022$layers[[4]]$aes_params$size = 10/.pt
+lineplot_cell_epigenetic_crp_score_wielscher_2022_resid <- lineplot_cell_epigenetic_crp_score_wielscher_2022_resid +
+  ggtitle("CRP (Wielscher 2022, cell type adjusted)") +
+  ylab("Residualized Epigenetic CRP")
+lineplot_cell_epigenetic_crp_score_wielscher_2022_resid$layers[[3]]$aes_params$size = 10/.pt
+lineplot_cell_epigenetic_crp_score_wielscher_2022_resid$layers[[3]]$data$y = lineplot_cell_epigenetic_crp_score_wielscher_2022_resid$layers[[3]]$data$y +10
+lineplot_cell_epigenetic_crp_score_wielscher_2022_resid$layers[[4]]$aes_params$size = 10/.pt
+lineplot_cell_epigenetic_crp_score_wielscher_2022_resid$layers[[4]]$data$y = lineplot_cell_epigenetic_crp_score_wielscher_2022_resid$layers[[4]]$data$y -10
+lineplot_nocell_epiage_telo <- lineplot_nocell_epiage_telo +
+  ggtitle("DNAmTL (unadjusted)")
+lineplot_nocell_epiage_telo$layers[[3]]$aes_params$size = 10/.pt
+lineplot_nocell_epiage_telo$layers[[4]]$aes_params$size = 10/.pt
+lineplot_cell_epiage_telo_resid <- lineplot_cell_epiage_telo_resid +
+  ggtitle("DNAmTL (cell type adjusted)")
+lineplot_cell_epiage_telo_resid$layers[[3]]$aes_params$size = 10/.pt
+lineplot_cell_epiage_telo_resid$layers[[3]]$data$y = lineplot_cell_epiage_telo_resid$layers[[3]]$data$y +0.05
+lineplot_cell_epiage_telo_resid$layers[[4]]$aes_params$size = 10/.pt
+lineplot_cell_epiage_telo_resid$layers[[4]]$data$y = lineplot_cell_epiage_telo_resid$layers[[4]]$data$y -0.05
+
+# combine & export plots
+png(filename = "./04_figures/figure_2_lineplot_episcore_performance.png", 
+    width = 20, height = 14, res = 700, units = "cm")
+lineplot_selected_episcores <- ggarrange(lineplot_nocell_epigenetic_crp_score_wielscher_2022, lineplot_cell_epigenetic_crp_score_wielscher_2022_resid,
+                                         lineplot_nocell_epiage_telo, lineplot_cell_epiage_telo_resid,
+                        nrow = 2, ncol = 2,
+                        labels = c("A", "B", "C", "D"),
+                        hjust = -1.5,
+                        align = "hv",
+                        common.legend = TRUE,
+                        legend = "bottom")
+lineplot_selected_episcores
+dev.off()
+
+```
