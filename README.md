@@ -1,5 +1,6 @@
 # Limited Generalizability of Epigenetic Clocks and Scores Across Pediatric Tissues and Age Ranges
-[![DOI](https://zenodo.org/badge/1114562501.svg)](https://zenodo.org/badge/latestdoi/1114562501)
+[![DOI](https://zenodo.org/badge/1114562501.svg)](https://zenodo.org/badge/latestdoi/1114562501)  
+
 **Author:** Vera N. Karlbauer  
 **Contact:** vera_karlbauer@psych.mpg.de  
 **Date created:** 2025-12-11  
