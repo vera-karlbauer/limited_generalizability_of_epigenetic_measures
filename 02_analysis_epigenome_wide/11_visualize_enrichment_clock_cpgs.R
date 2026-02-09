@@ -3,7 +3,7 @@
 ### Contact: "vera_karlbauer@psych.mpg.de"
 ### Date created: "2025-11-11"
 ### Purpose: Visualize results from enrichment analyses for clock CpGs
-### Purpose: Generate panel B of figure 5
+### Purpose: Generate panel B of figure 7
 
 ### Setup
 # general
@@ -86,4 +86,4 @@ forestplot <- ggplot(data = results_clock_cpgs,
     legend.position.inside = c(0.82, 0.78),
     axis.text.y = element_text(margin = margin(t = 50, b = 50), angle = 90, hjust = 0.5, vjust = 1.5))
 forestplot
-ggsave(filename = "figure_5b_forestplot_clock_enrichment.png", path = "./04_figures", device = 'png', height = 3.5, width = 5, dpi = 700)
+ggsave(filename = "figure_7b_forestplot_clock_enrichment.png", path = "./04_figures", device = 'png', height = 3.5, width = 5, dpi = 700)

@@ -19,7 +19,7 @@ knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_
 - Exposures: early-life adversity (ELA) and socioeconomic status (SES). 
 - Epigenetic measures: 14 epigenetic clocks, 7 epigenetic scores.  
 - Covariates: age, sex, cell types, smoking (cg05575921), kinship matrix (ancestry & relatedness).
-- Plot results as barplot (Figure 4).
+- Plot results as barplot (Figure 6).
 
 # Setup
 ### Step 0: Load packages
@@ -257,7 +257,7 @@ results_ses <- results_ses %>%
   arrange(factor(epigenetic_measure, levels = epiorder))
 ```
 
-# Plot ELA and SES effects
+# Plot ELA and SES effects (Figure 6)
 
 ```{r}
 # results to long format & add significance category
@@ -328,7 +328,7 @@ results_barplot <- ggplot(aes(x = beta_std,
 
 results_barplot
 
-png(file = "04_figures/figure_4_combined_barplot_exposures.png", height = 7, width = 10, units = 'in', res = 700)
+png(file = "04_figures/figure_6_combined_barplot_exposures.png", height = 7, width = 10, units = 'in', res = 700)
 results_barplot
 dev.off()
 ```

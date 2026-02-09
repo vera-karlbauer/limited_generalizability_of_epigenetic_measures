@@ -17,8 +17,8 @@ knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_
 - Correlate within-person Pearson correlations of epigenetic scores between matched blood and saliva samples.
 - Calculate correlations separately for uncorrected and celltype-residualized scores.
 - For all correlations, also calculate corresponding ICC values (ICC2/random effects).
-- Plot results as corrplots (right side of Figure 3).
-- Export results as eTable 6.
+- Plot results as corrplots (right side of Figure 4).
+- Export results as Supplementary Table 5.
 
 # Setup
 ### Step 0: Load packages
@@ -159,11 +159,11 @@ rownames(pmat_cell) <- rownames(corrmat_cell)
 colnames(pmat_cell) <- "episcore"
 ```
 
-### Create combined correlation plot (Figure 3B)
+### Create combined correlation plot (Figure 4B)
 
 ```{r}
 # initialize graphics device
-tiff(file = "04_figures/figure_3b_corrplot_all_episcores_cross_tissue.png", height = 6.7, width = 5, units = 'in', res = 700)
+tiff(file = "04_figures/figure_4b_corrplot_all_episcores_cross_tissue.png", height = 6.7, width = 5, units = 'in', res = 700)
 par(mfrow=c(1,2),
     mar = c(1,1,1,1),
     oma = c(0,0,4,0))
@@ -311,10 +311,10 @@ correlations_episcores <- round_values(correlations_episcores)
 
 ```
 
-## Export (eTable 6)
+## Export (Supplementary Table 5)
 
 ```{r}
 # export
-write_xlsx(correlations_episcores, path = "05_tables_for_publication/etable_6_results_correlations_episcores.xlsx", col_names = TRUE, format_headers = TRUE)
+write_xlsx(correlations_episcores, path = "05_tables_for_publication/supptable_5_results_correlations_episcores.xlsx", col_names = TRUE, format_headers = TRUE)
 ```
 

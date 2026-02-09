@@ -19,8 +19,8 @@ knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_
 - Analyze correlations separately per tissue.
 - Analyze correlations with and without cell type correction.
 - For all correlations, also calculate corresponding ICC values (ICC2/random effects).
-- Plot results as corrplots (eFigure 4).
-- Export results as eTables 7-10.
+- Plot results as corrplots (Figure 5).
+- Export results as Supplementary Tables 6-9.
 
 # Setup
 ### Step 0: Load packages
@@ -459,11 +459,11 @@ rownames(pmat_cell_saliva) <- rename_clocks(rownames(pmat_cell_saliva))
 pmat_cell_saliva <- pmat_cell_saliva[clockorder,]
 ```
 
-### Arrange and export final plot (eFigure 4A) 
+### Arrange and export final plot (Figure 5A) 
 
 ```{r}
 # initialize graphics device
-tiff(file = "04_figures/efigure_4a_corrplot_all_epiage_measures_across_time.png", height = 10, width = 5.5, units = 'in', res = 700)
+tiff(file = "04_figures/figure_5a_corrplot_all_epiage_measures_across_time.png", height = 10, width = 5.5, units = 'in', res = 700)
 par(mfrow=c(2,2),
     oma = c(0,3,4,0))
 # Plot 1: blood without cell types
@@ -480,7 +480,7 @@ corrplot(corr = corrmat_nocell_blood,
          p.mat = pmat_nocell_blood,
          sig.level = 0.05,
          insig = "label_sig",
-         pch = "       *",
+         pch = "      *",
          pch.col = "lightblue",
          pch.cex = 1.2,
          na.label = "NA",
@@ -506,7 +506,7 @@ corrplot(corr = corrmat_cell_blood,
          p.mat = pmat_cell_blood,
          sig.level = 0.05,
          insig = "label_sig",
-         pch = "       *",
+         pch = "      *",
          pch.col = "lightblue",
          pch.cex = 1.2,
          na.label = "NA",
@@ -527,7 +527,7 @@ corrplot(corr = corrmat_nocell_saliva,
          p.mat = pmat_nocell_saliva,
          sig.level = 0.05,
          insig = "label_sig",
-         pch = "       *",
+         pch = "      *",
          pch.col = "orange",
          pch.cex = 1.2,
          na.label = "NA",
@@ -550,7 +550,7 @@ corrplot(corr = corrmat_cell_saliva,
          p.mat = pmat_cell_saliva,
          sig.level = 0.05,
          insig = "label_sig",
-         pch = "       *",
+         pch = "      *",
          pch.col = "orange",
          pch.cex = 1.2,
          na.label = "NA",
@@ -669,7 +669,7 @@ for(i in 1:length(clocknames)) {
 
 ```
 
-#### Export blood longitudinal clock correlations as table (eTable 7)
+#### Export blood longitudinal clock correlations as table (Supplementary Table 6)
 
 ```{r}
 # rename epiclocks
@@ -722,7 +722,7 @@ longitudinal_epiclocks_blood <- full_join(longitudinal_epiclocks_blood, icc_epic
 longitudinal_epiclocks_blood <- round_values(longitudinal_epiclocks_blood)
 
 # export
-write_xlsx(longitudinal_epiclocks_blood, path = "05_tables_for_publication/etable_7_longitudinal_epiclocks_blood.xlsx", col_names = TRUE, format_headers = TRUE)
+write_xlsx(longitudinal_epiclocks_blood, path = "05_tables_for_publication/supptable_6_longitudinal_epiclocks_blood.xlsx", col_names = TRUE, format_headers = TRUE)
 ```
 
 ### Epigenetic clocks (saliva)
@@ -834,7 +834,7 @@ for(i in 1:length(clocknames)) {
 
 ```
 
-#### Export saliva longitudinal clock correlations as table (eTable 8)
+#### Export saliva longitudinal clock correlations as table (Supplementary Table 7)
 
 ```{r}
 # rename epiclocks
@@ -887,7 +887,7 @@ longitudinal_epiclocks_saliva <- full_join(longitudinal_epiclocks_saliva, icc_ep
 longitudinal_epiclocks_saliva <- round_values(longitudinal_epiclocks_saliva) 
 
 # export
-write_xlsx(longitudinal_epiclocks_saliva, path = "05_tables_for_publication/etable_8_longitudinal_epiclocks_saliva.xlsx", col_names = TRUE, format_headers = TRUE)
+write_xlsx(longitudinal_epiclocks_saliva, path = "05_tables_for_publication/supptable_7_longitudinal_epiclocks_saliva.xlsx", col_names = TRUE, format_headers = TRUE)
 ```
 
 
@@ -1029,10 +1029,10 @@ rownames(pmat_scores_cell_saliva) <- rename_scores(rows)
 colnames(pmat_scores_cell_saliva) <- "episcore"
 ```
 
-### Combined plot: arrange final plot (eFigure 4B)
+### Combined plot: arrange final plot (Figure 5B)
 ```{r}
 # initialize graphics device
-tiff(file = "04_figures/efigure_4b_corrplot_all_episcores_across_time.png", height = 10, width = 5, units = 'in', res = 700)
+tiff(file = "04_figures/figure_5b_corrplot_all_episcores_across_time.png", height = 10, width = 5, units = 'in', res = 700)
 par(mfrow=c(2,2),
     oma = c(0,0,4,0))
 # Plot 1: blood without cell types
@@ -1205,7 +1205,7 @@ for(i in 1:length(scorenames)) {
 }
 ```
 
-#### Export blood longitudinal correlations as table
+#### Export blood longitudinal correlations as table (Supplementary Table 8)
 
 ```{r}
 # rename episcores
@@ -1218,7 +1218,7 @@ correlations_episcores <- full_join(correlations_episcores, icc_episcores_blood,
 correlations_episcores <- round_values(correlations_episcores)
 
 # export
-write_xlsx(correlations_episcores, path = "05_tables_for_publication/etable_9_longitudinal_episcores_blood.xlsx", col_names = TRUE, format_headers = TRUE)
+write_xlsx(correlations_episcores, path = "05_tables_for_publication/supptable_8_longitudinal_episcores_blood.xlsx", col_names = TRUE, format_headers = TRUE)
 
 ```
 
@@ -1299,7 +1299,7 @@ for(i in 1:length(scorenames)) {
 }
 ```
 
-#### Export saliva longitudinal correlations as table
+#### Export saliva longitudinal correlations as table (Supplementary Table 9)
 
 ```{r}
 # rename episcores
@@ -1312,6 +1312,6 @@ correlations_episcores <- full_join(correlations_episcores, icc_episcores_saliva
 correlations_episcores <- round_values(correlations_episcores)
 
 # export
-write_xlsx(correlations_episcores, path = "05_tables_for_publication/etable_10_longitudinal_episcores_saliva.xlsx", col_names = TRUE, format_headers = TRUE)
+write_xlsx(correlations_episcores, path = "05_tables_for_publication/supptable_9_longitudinal_episcores_saliva.xlsx", col_names = TRUE, format_headers = TRUE)
 
 ```

@@ -3,7 +3,7 @@
 ### Contact: "vera_karlbauer@psych.mpg.de"
 ### Date created: "2025-11-11"
 ### Purpose: For different categories from EWAS catalog, correlate mean cross-tissue correlation (CpGs weighted by betas)
-### Purpose: Generate panel C of figure 5
+### Purpose: Generate panel C of figure 7
 
 ### Setup
 ## general
@@ -151,4 +151,4 @@ ewasplot <- ggplot(data = results_ewas_correlation_long,
         panel.grid.major.y = element_blank(),
         strip.background = element_rect(fill="white", color = "white"))
 ewasplot
-ggsave(filename = "figure_5c_forestplot_ewas_correlation.png", path = "./04_figures", device = 'png', height = 7, width = 5, dpi = 700)
+ggsave(filename = "figure_7c_forestplot_ewas_correlation.png", path = "./04_figures", device = 'png', height = 7, width = 5, dpi = 700)

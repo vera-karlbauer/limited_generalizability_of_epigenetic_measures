@@ -14,7 +14,7 @@ knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_
 ```
 
 # What this script does:
-- Generate sample demographics table (N, sex, ethnicity, age, age range) for eTable 2
+- Generate sample demographics table (table 1; N, sex, ethnicity, age, age range) 
 
 # Setup
 ### Step 0: Load packages

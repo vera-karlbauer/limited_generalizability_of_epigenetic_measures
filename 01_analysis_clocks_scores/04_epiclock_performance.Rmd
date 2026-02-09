@@ -23,9 +23,9 @@ knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_
 - Additionally (to better characterize strength of linear association), calculate Spearman correlation between epigenetic and chronological age separately per tissue.
 - Repeat all models with and without cell type correction.
 - Visualize all linear models as dotplots with regression lines; add Pearson correlation per tissue as label.
-- Combine lineplots for each epigenetic clock with/without celltype correction into one plot (eFigure 2).
-- Select exemplary line plots (for GrimAge2, PedBE) and export as Figure 1.
-- Export results as eTable 3.
+- Combine lineplots for each epigenetic clock with/without celltype correction into one plot (extened data Figure 1).
+- Select exemplary line plots (for GrimAge2, PedBE) and export as Figure 2.
+- Export results as Supplementary Table 2.
 
 # Setup
 ### Step 0: Load packages
@@ -243,7 +243,7 @@ performance_per_tissue <- performance_per_tissue %>%
   arrange(match(clock_name, clockorder))
 ```
 
-## Join all values, FDR-correct, round values, export as table
+## Join all values, FDR-correct, assign scenario, round values, export as table (Supplementary Table 2)
 
 ```{r}
 # adjoin results of regression models with and without cell type adjustment
@@ -271,11 +271,30 @@ results_epiclock_performance_all <- results_epiclock_performance_all %>%
 # combine regression models and correlation results
 results_epiclock_performance_full <- full_join(results_epiclock_performance_all, select(performance_per_tissue, clock_name, cor_blood, cor_blood_celltype, cor_saliva, cor_saliva_celltype), join_by("epiclock" == "clock_name"))
 
+# assign measures to scenario 1 (= equal performance across tissues after cell type correction) or scenario 2 (= unequal performance or n.s. association with phenotype across tissues after cell type correction)
+results_epiclock_performance_full <- results_epiclock_performance_full %>%
+  mutate(performance_scenario = case_when(
+    # if interaction effect is n.s. after FDR and cell type correction
+    p_interaction_fdr_celltype_adjusted >= 0.05
+    # AND main phenotype effect is significant after cell type correction
+    & p_chrono_age_celltype_adjusted < 0.05
+    # assign to scenario 1
+    ~ "Scenario 1",
+    # if interaction effect is significant after FDR and cell type correction
+    p_interaction_fdr_celltype_adjusted < 0.05
+    # or if interaction effect n.s. after FDR and cell type correction, but main phenotype effect is n.s. after cell type correction
+    | (p_interaction_fdr_celltype_adjusted >= 0.05 & p_chrono_age_celltype_adjusted >= 0.05)
+    # assign to scenario 2
+    ~ "Scenario 2",
+    # otherwise flag
+    TRUE ~ "no scenario assigned"
+  ))
+
 # round values
 results_epiclock_performance_full <- round_values(results_epiclock_performance_full)
 
 # export
-write_xlsx(results_epiclock_performance_full, path = "05_tables_for_publication/etable_3_epiclock_performance.xlsx", col_names = TRUE, format_headers = TRUE)
+write_xlsx(results_epiclock_performance_full, path = "05_tables_for_publication/supptable_2_epiclock_performance.xlsx", col_names = TRUE, format_headers = TRUE)
 ```
 
 # Plotting
@@ -381,11 +400,11 @@ for(clock in unique_clocks$epiclock){
 
 ```
 
-### Combine all line plots and export (= eFigure 2)
+### Combine all line plots and export (= extended data figure 1)
 
 ```{r}
 ## arrange & export all plots
-png(filename = "./04_figures/efigure_2_combined_lineplot_all_clocks.png", 
+png(filename = "./04_figures/extended_figure_1_combined_lineplot_all_clocks.png", 
     width = 21, height = 30, res = 700, units = "cm")
 combined_lineplot <- ggarrange(lineplot_nocell_epiage_horvath, lineplot_cell_epiage_horvath_resid,
                                lineplot_nocell_epiage_pc_horvath, lineplot_cell_epiage_pc_horvath_resid,
@@ -419,7 +438,7 @@ annotate_figure(combined_lineplot,
 dev.off()
 ```
 
-## Plot select results only (Figure 1 for publication)
+## Plot select results only (Figure 2 for publication)
 
 ```{r}
 # increase font sizes in plots
@@ -452,7 +471,7 @@ combined = ggarrange(lineplot_nocell_epiage_grimage2, lineplot_cell_epiage_grima
                         common.legend = TRUE,
                         legend = "bottom",
   labels = c("A","B","C","D"))
-png(filename = "./04_figures/figure_1_lineplot_epiclock_performance.png", width = 20, height = 14, res = 700, units = "cm")
+png(filename = "./04_figures/figure_2_lineplot_epiclock_performance.png", width = 20, height = 14, res = 700, units = "cm")
   combined
 dev.off()
 

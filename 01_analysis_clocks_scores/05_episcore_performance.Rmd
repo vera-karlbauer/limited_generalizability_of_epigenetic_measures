@@ -22,9 +22,9 @@ knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_
 - Additionally (to better characterize strength of linear association), calculate Spearman correlation between epigenetic score and phenotype separately per tissue.
 - Repeat all models with and without cell type correction.
 - Visualize all linear models as dotplots with regression lines; add Pearson correlation per tissue as label.
-- Combine lineplots for each epigenetic score with/without celltype correction into one plot (eFigure 3).
-- Select exemplary line plots (for CRP Wielscher, DNAmTL) and export as Figure 2.
-- Export results as eTable 4.
+- Combine lineplots for each epigenetic score with/without celltype correction into one plot (extended data Figure 2).
+- Select exemplary line plots (for CRP Wielscher, DNAmTL) and export as Figure 3.
+- Export results as Supplementary Table 3.
 
 # Setup
 ### Step 0: Load packages
@@ -250,7 +250,7 @@ performance_per_tissue <- performance_per_tissue %>%
   mutate(score_name = rename_scores(episcore))
 ```
 
-## Join all values, FDR-correct, round, export as table
+## Join all values, FDR-correct, round, export as table (Supplementary Table 3)
 
 ```{r}
 # adjoin results from regression models
@@ -278,11 +278,30 @@ results_episcore_performance_kin <- results_episcore_performance_kin %>%
 # adjoin regression models and correlation results
 results_episcore_performance_full <- full_join(results_episcore_performance_kin, select(performance_per_tissue, score_name, cor_blood, cor_blood_celltype, cor_saliva, cor_saliva_celltype), join_by("episcore" == "score_name"))
 
+# assign measures to scenario 1 (= equal performance across tissues after cell type correction) or scenario 2 (= unequal performance or n.s. association with phenotype across tissues after cell type correction)
+results_episcore_performance_full <- results_episcore_performance_full %>%
+  mutate(performance_scenario = case_when(
+    # if interaction effect is n.s. after FDR and cell type correction
+    p_interaction_fdr_celltype_adjusted >= 0.05
+    # AND main phenotype effect is significant after cell type correction
+    & p_pheno_celltype_adjusted < 0.05
+    # assign to scenario 1
+    ~ "Scenario 1",
+    # if interaction effect is significant after FDR and cell type correction
+    p_interaction_fdr_celltype_adjusted < 0.05
+    # or if interaction effect is n.s. after FDR and cell type correction, but main phenotype effect is also n.s. after cell type correction
+    | (p_interaction_fdr_celltype_adjusted >= 0.05 & p_pheno_celltype_adjusted >= 0.05)
+    # assign to scenario 2
+    ~ "Scenario 2",
+    # otherwise flag
+    TRUE ~ "no scenario assigned"
+  ))
+
 # round values
 results_episcore_performance_full <- round_values(results_episcore_performance_full)
 
 # export results as table
-write_xlsx(results_episcore_performance_full, path = "05_tables_for_publication/etable_4_episcore_performance.xlsx", col_names = TRUE, format_headers = TRUE)
+write_xlsx(results_episcore_performance_full, path = "05_tables_for_publication/supptable_3_episcore_performance.xlsx", col_names = TRUE, format_headers = TRUE)
 ```
 
 # Plotting
@@ -438,7 +457,7 @@ for(score in unique_scores$episcore){
 
 ```{r}
 ## arrange & export all plots
-png(filename = "./04_figures/efigure_3_combined_lineplot_all_scores.png", 
+png(filename = "./04_figures/extended_figure_2_combined_lineplot_all_scores.png", 
     width = 21, height = 30, res = 700, units = "cm")
 combined_lineplot <- ggarrange(lineplot_nocell_epigenetic_bmi_score_do_2023,
                                lineplot_cell_epigenetic_bmi_score_do_2023_resid,
@@ -473,7 +492,7 @@ dev.off()
 
 ```
 
-## Plot selected results only (Figure 2 for publication)
+## Plot selected results only (Figure 3 for publication)
 
 ```{r}
 # reduce y axis label font and increase annotation label font, finetune plots
@@ -501,7 +520,7 @@ lineplot_cell_epiage_telo_resid$layers[[4]]$aes_params$size = 10/.pt
 lineplot_cell_epiage_telo_resid$layers[[4]]$data$y = lineplot_cell_epiage_telo_resid$layers[[4]]$data$y -0.05
 
 # combine & export plots
-png(filename = "./04_figures/figure_2_lineplot_episcore_performance.png", 
+png(filename = "./04_figures/figure_3_lineplot_episcore_performance.png", 
     width = 20, height = 14, res = 700, units = "cm")
 lineplot_selected_episcores <- ggarrange(lineplot_nocell_epigenetic_crp_score_wielscher_2022, lineplot_cell_epigenetic_crp_score_wielscher_2022_resid,
                                          lineplot_nocell_epiage_telo, lineplot_cell_epiage_telo_resid,

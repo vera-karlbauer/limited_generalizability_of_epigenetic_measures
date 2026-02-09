@@ -18,8 +18,8 @@ knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_
 - Calculate correlations separately for uncorrected and celltype-residualized clocks.
 - Calculate correlations separately for epigenetic age ("Age"), epigenetic age acceleration ("Accel", epigenetic age residualized for chronological age), and epigenetic age delta ("Delta", epigenetic age minus chronological age).
 - For all correlations, also calculate corresponding ICC values (ICC2/random effects).
-- Plot results as corrplots (left side of Figure 3).
-- Export results as eTable 5.
+- Plot results as corrplots (left side of Figure 4).
+- Export results as Supplementary Table 4.
 
 # Setup
 ### Step 0: Load packages
@@ -255,12 +255,12 @@ rownames(pmat_cell) <- rename_clocks(rownames(pmat_cell)) %>% str_replace("_resi
 pmat_cell <- pmat_cell[clockorder,]  
 ```
 
-## Create combined correlation plot (Figure 3A)
+## Create combined correlation plot (Figure 4A)
 
 ```{r}
 ### create combined corrplot
 # initialize graphics device
-tiff(file = "04_figures/figure_3a_corrplot_all_epiage_measures_cross_tissue.png", height = 6.7, width = 5, units = 'in', res = 700)
+tiff(file = "04_figures/figure_4a_corrplot_all_epiage_measures_cross_tissue.png", height = 6.7, width = 5, units = 'in', res = 700)
 par(mfrow=c(1,2),
     mar = c(1,1,1,1),
     oma = c(0,0,4,0))
@@ -313,11 +313,12 @@ mtext("with cell type correction", side=3, line=1, cex = 1, at = 1.5)
 # shut off
 dev.off()
 ```
+
 ## Export color scale
 
 ```{r}
 # initialize graphics device
-tiff(file = "04_figures/figure_3c_corrplot_cross_tissue_colorscale.png", height = 7, width = 10, units = 'in', res = 700)
+tiff(file = "04_figures/figure_4c_corrplot_cross_tissue_colorscale.png", height = 7, width = 10, units = 'in', res = 700)
 # Placeholder plot with color scale
 corrplot(corr = t(corrmat_nocell),
          method = "color",
@@ -505,10 +506,10 @@ correlations_epiclocks <- round_values(correlations_epiclocks)
 
 ```
 
-## Export results (eTable 5)
+## Export results (Supplementary Table 4)
 
 ```{r}
 # export
-write_xlsx(correlations_epiclocks, path = "./05_tables_for_publication/etable_5_results_correlations_epiclocks.xlsx", col_names = TRUE, format_headers = TRUE)
+write_xlsx(correlations_epiclocks, path = "./05_tables_for_publication/supptable_4_results_correlations_epiclocks.xlsx", col_names = TRUE, format_headers = TRUE)
 ```
 

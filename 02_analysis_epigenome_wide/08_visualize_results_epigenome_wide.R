@@ -3,7 +3,7 @@
 ### Contact: "vera_karlbauer@psych.mpg.de"
 ### Date created: "2025-02-20"
 ### Purpose: visualize & summarize results from epigenome-wide analyses
-### Purpose: generate Panel A of figure 5
+### Purpose: generate Panel A of figure 7
 
 ### Setup
 # general
@@ -92,7 +92,8 @@ PercTable(results_epigenome$variable_and_correlated_celltype_adjusted)
 ## Distribution of within-person correlations for variable CpGs only
 # convert to long format 
 results_epigenome_nocelltype <- results_epigenome_variable %>%
-  select(!(ends_with("_celltype_adjusted")))
+  select(!(ends_with("_celltype_adjusted"))) %>%
+  select(-c("mean_blood", "mean_saliva", "sd_blood", "sd_saliva"))
 results_epigenome_nocelltype$adjustment <- rep("unadjusted", nrow(results_epigenome_nocelltype))
 results_epigenome_celltype <- results_epigenome_variable %>%
   select(-c("mean_blood", "mean_saliva", "sd_blood", "sd_saliva", "cor_spearman", 
@@ -143,5 +144,5 @@ hist <- ggplot(results_epigenome_long, aes(x = cor_spearman, fill = adjustment))
   theme_bw() +
   theme(legend.position = "none", axis.text.y = element_text(angle = 90, hjust = 0.5))
 hist
-ggsave(hist, filename = "04_figures/figure_5a_histogram_epigenome_wide_within_variable.png", device = "png",
+ggsave(hist, filename = "04_figures/figure_7a_histogram_epigenome_wide_within_variable.png", device = "png",
        width = 5, height = 3.5, units = "in", dpi = 700) 
