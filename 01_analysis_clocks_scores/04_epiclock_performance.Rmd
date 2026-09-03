@@ -1,5 +1,5 @@
 ---
-title: "Limited generalizability of epigenetic measures: epigenetic clock performance"
+title: "Evaluating epigenetic clocks and scores: epigenetic clock performance"
 author: "Vera N. Karlbauer"
 contact: "vera_karlbauer@psych.mpg.de"
 date: "2024-12-04"
@@ -8,14 +8,13 @@ output:
     code_folding: hide
 ---
 
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures", 
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/evaluating_epigenetic_clocks_and_scores", 
                      digits = 4, scipen = 6)
 ```
 
-# What this script does:
+# Purpose:
 - Test epigenetic clock performance (=linear association with chronological age).
 - For each epigenetic clock, test its association with chronological age by tissue.
 - Linear model: epiclock ~ chronoage + tissue + chronoage * tissue.
@@ -23,7 +22,7 @@ knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_
 - Additionally (to better characterize strength of linear association), calculate Spearman correlation between epigenetic and chronological age separately per tissue.
 - Repeat all models with and without cell type correction.
 - Visualize all linear models as dotplots with regression lines; add Pearson correlation per tissue as label.
-- Combine lineplots for each epigenetic clock with/without celltype correction into one plot (extened data Figure 1).
+- Combine lineplots for each epigenetic clock with/without celltype correction into one plot (Supplementary Figure 2).
 - Select exemplary line plots (for GrimAge2, PedBE) and export as Figure 2.
 - Export results as Supplementary Table 2.
 
@@ -333,7 +332,8 @@ for(clock in unique_clocks$epiclock){
     theme_bw() +
     theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold"),
           axis.title.x = element_text(size = 10), axis.title.y = element_text(size = 6)) + 
-    scale_color_brewer(palette = "Set1") +
+    scale_color_brewer(palette = "Set1", name = "Tissue", breaks = c("blood", "saliva")) +
+    scale_shape_manual(values = c(16, 17), name = "Tissue", breaks = c("blood", "saliva")) +
     ggtitle(rename_clocks(clock)) +
     xlab("Chronological age") + 
     ylab("Epigenetic age")
@@ -369,7 +369,9 @@ for(clock in unique_clocks$epiclock_resid){
     theme_bw() +
     theme(legend.position = "none", plot.title = element_text(size = 10, face = "bold"),
           axis.title.x = element_text(size = 10), axis.title.y = element_text(size = 6)) + 
-  scale_color_manual(values=c("#EB5355", "#699ECA")) +
+    scale_color_manual(values=c("#EB5355", "#699ECA"), 
+                              name = "Tissue", breaks = c("blood", "saliva")) +
+    scale_shape_manual(values = c(16, 17), name = "Tissue", breaks = c("blood", "saliva")) +
     ggtitle(rename_clocks(clock)) +
     xlab("Chronological age") + 
     ylab("Residualized epigenetic age")
@@ -392,7 +394,7 @@ for(clock in unique_clocks$epiclock){
   filename = paste0("./04_figures/lineplot_", clock, ".png")
   png(filename = filename, width = 20, height = 14, res = 700, units = "cm")
   print(annotate_figure(combined,
-                top = text_grob("uncorrected                                             cell type corrected",
+                top = text_grob("unadjusted                                             cell type adjusted",
                                 size = 14, face = "bold")
                 ))
   dev.off()
@@ -400,11 +402,11 @@ for(clock in unique_clocks$epiclock){
 
 ```
 
-### Combine all line plots and export (= extended data figure 1)
+### Combine all line plots and export (= Supplementary Figure 2)
 
 ```{r}
 ## arrange & export all plots
-png(filename = "./04_figures/extended_figure_1_combined_lineplot_all_clocks.png", 
+png(filename = "./04_figures/supplementary_figure_2_combined_lineplot_all_clocks.png", 
     width = 21, height = 30, res = 700, units = "cm")
 combined_lineplot <- ggarrange(lineplot_nocell_epiage_horvath, lineplot_cell_epiage_horvath_resid,
                                lineplot_nocell_epiage_pc_horvath, lineplot_cell_epiage_pc_horvath_resid,
@@ -430,7 +432,7 @@ combined_lineplot <- ggarrange(lineplot_nocell_epiage_horvath, lineplot_cell_epi
                         legend = "bottom")
 
 annotate_figure(combined_lineplot,
-                top = text_grob("         uncorrected            cell type corrected           uncorrected            cell type corrected",
+                top = text_grob("         unadjusted            cell type adjusted           unadjusted            cell type adjusted",
                                                      size = 14, face = "bold"), 
                 fig.lab.pos = "top")
 

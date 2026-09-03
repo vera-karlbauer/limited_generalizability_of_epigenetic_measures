@@ -3,7 +3,7 @@
 ### Contact: "vera_karlbauer@psych.mpg.de"
 ### Date created: "2025-02-20"
 ### Purpose: visualize & summarize results from epigenome-wide analyses
-### Purpose: generate Panel A of figure 7
+### Purpose: generate Panel A of figure 8
 
 ### Setup
 # general
@@ -144,5 +144,5 @@ hist <- ggplot(results_epigenome_long, aes(x = cor_spearman, fill = adjustment))
   theme_bw() +
   theme(legend.position = "none", axis.text.y = element_text(angle = 90, hjust = 0.5))
 hist
-ggsave(hist, filename = "04_figures/figure_7a_histogram_epigenome_wide_within_variable.png", device = "png",
+ggsave(hist, filename = "04_figures/figure_8a_histogram_epigenome_wide_within_variable.png", device = "png",
        width = 5, height = 3.5, units = "in", dpi = 700) 

@@ -3,7 +3,7 @@
 ### Contact: "vera_karlbauer@psych.mpg.de"
 ### Date created: "2025-11-11"
 ### Purpose: For different categories from EWAS catalog, correlate mean cross-tissue correlation (CpGs weighted by betas)
-### Purpose: Generate panel C of figure 7
+### Purpose: Generate panel C of figure 8
 
 ### Setup
 ## general
@@ -106,9 +106,6 @@ for(i in 1:length(traits)){
   results_ewas_correlation <- rbind(results_ewas_correlation, current_results)
 }
 
-
-test <- results_ewas_correlation
-
 ### Visualize results
 # convert data to long format
 results_ewas_correlation_long <- results_ewas_correlation %>%
@@ -146,9 +143,14 @@ ewasplot <- ggplot(data = results_ewas_correlation_long,
   # add hlines to separate trait categories
   geom_hline(yintercept = seq(1.5, 10, 1), color = "grey", linewidth = 0.25) +
   theme_bw() + 
-  theme(legend.position = "inside", legend.position.inside = c(0.8, 0.15),
+  theme(legend.position = "inside", 
+        legend.position.inside = c(0.8, 0.07),
+        legend.background = element_rect(fill = "transparent"),
+        legend.key.size = unit(0.4, "cm"),
+        legend.title = element_text(size = 8, face = "bold"),
+        legend.text = element_text(size = 7),
         axis.text.y = element_text(angle = 40, hjust=0.95),
         panel.grid.major.y = element_blank(),
         strip.background = element_rect(fill="white", color = "white"))
 ewasplot
-ggsave(filename = "figure_7c_forestplot_ewas_correlation.png", path = "./04_figures", device = 'png', height = 7, width = 5, dpi = 700)
+ggsave(filename = "figure_8c_forestplot_ewas_correlation.png", path = "./04_figures", device = 'png', height = 7, width = 5, dpi = 700)

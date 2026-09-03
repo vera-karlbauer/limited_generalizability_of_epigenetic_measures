@@ -1,8 +1,8 @@
-### Title: "Cross-tissue correlations: Define functions"
+### Title: "Evaluating epigenetic clocks and scores: Define functions"
 ### Author: "Vera N. Karlbauer"
 ### Contact: "vera_karlbauer@psych.mpg.de"
 ### Date created: "2025-11-25"
-### Purpose: Define functions for cross-tissue project
+### Purpose: Define functions for analysis and data handling
 
 ### Function 1: Rename epigenetic clock from variable name format to plotting format (e.g. "epiage_horvath_blood" to "Horvath")
 
@@ -134,9 +134,9 @@ rename_scores <- function(names){
 
 #' rename_phenos
 #'
-#' @param names a vector of clock names in variable name format
+#' @param names a vector of names in variable name format
 #'
-#' @return vector of clock names in plotting/publication format
+#' @return vector of clock in plotting/publication format
 #' @export
 rename_phenos <- function(names){
   new_names = str_replace_all(names, 
@@ -147,47 +147,31 @@ rename_phenos <- function(names){
   return(new_names)
 }
 
-### Function 6: Round all numeric values to 2 digits except for p-values. 
-# P-values are rounded according to JAMA standards: p>0.99 ="p>.99), 2 digits up to p = 0.01; 3 digits up to 0.001, p<0.001 = "p<.001"
+### Function 6: Round all numeric values to 2 digits unless zero, then round to first non-zero digit 
 #' round_values
 #'
-#' @param df a data frame of numeric and/or non-mumeric values
+#' @param df a data frame of numeric and/or non-numeric values
 #'
-#' @return a data frame with all numeric values rounded according to JAMA standards
+#' @return a data frame with rounded numeric values
 #' @export
 round_values <- function(df) {
-  format_p <- function(p) {
-    out <- rep(NA_character_, length(p))
-    na <- is.na(p)
-    
-    gt_099  <- !na & p > 0.99
-    gt_001  <- !na & !gt_099 & p > 0.01
-    gt_0001 <- !na & !gt_099 & !gt_001 & p > 0.001
-    rest    <- !na & !gt_099 & !gt_001 & !gt_0001
-    
-    out[gt_099]  <- ">.99"
-    out[gt_001]  <- round(p[gt_001], digits = 2)
-    out[gt_0001] <- round(p[gt_0001], digits = 3)
-    out[rest]    <- "<.001"
-    out
-    }
-  res <- df
-  for (nm in names(res)) {
-    x <- res[[nm]]
-    if (is.numeric(x)) {
-      if (nm %in% c("p", "p_fdr", "p_celltype_adjusted", "p_fdr_celltype_adjusted",
-                    "p_chrono_age", "p_chrono_age_celltype_adjusted", "p_pheno", "p_pheno_celltype_adjusted", 
-                    "p_tissue", "p_tissue_celltype_adjusted", "p_interaction", "p_interaction_celltype_adjusted", 
-                    "p_interaction_fdr", "p_interaction_fdr_celltype_adjusted")) {
-        res[[nm]] <- format_p(x)          # character with p-formatting
-      } else {
-        res[[nm]] <- round(x, 2)          # numeric rounded to 2 decimals
-      }
-    }
+  round_one <- function(x) {
+    ifelse(
+      is.na(x) | x == 0 | is.infinite(x),
+      x,
+      ifelse(
+        round(x, 2) != 0,
+        round(x, 2),
+        round(x, ceiling(-log10(abs(x))))
+      )
+    )
   }
-  res
+  df[] <- lapply(df, function(col) {
+    if (is.numeric(col)) round_one(col) else col
+  })
+  
+  df
 }
-
 
 ### Function 7: extract model coefficients from coxme(lmekin) output 
 # Based on: https://stackoverflow.com/questions/43720260/how-to-extract-p-values-from-lmekin-objects-in-coxme-package
@@ -206,4 +190,30 @@ extract_coxme_table <- function (mod){
   p <- signif(1 - pchisq((beta/se)^2, 1), 2)
   table = data.frame(cbind(beta, se, z, p))
   return(table)
+}
+
+### Function 8: Rename cell types from variable name format to plotting/table format (e.g. "NK_blood" to "Natural killer cells (blood)")
+
+#' rename_celltypes
+#'
+#' @param names a vector of names in variable name format
+#'
+#' @return vector of names in plotting/publication format
+#' @export
+rename_celltypes <- function(names){
+  new_names = str_replace_all(names, 
+                              c("Baso_blood" = "Basophils (blood)",
+                                "Bmem_blood" = "Memory B-cells (blood)",
+                                "Bnv_blood" = "Naïve B-cells (blood)",
+                                "CD4Tmem_blood" = "Memory CD4+ T-cells (blood)",
+                                "CD4Tnv_blood" = "Naïve CD4+ T-cells (blood)",
+                                "CD8Tmem_blood" = "Memory CD8+ T-cells (blood)",
+                                "CD8Tnv_blood" = "Naïve CD8+ T-cells (blood)",
+                                "Eos_blood" = "Eosinophils (blood)",
+                                "Mono_blood" = "Monocytes (blood)",
+                                "Neu_blood" = "Neutrophils (blood)",
+                                "NK_blood" = "Natural killer cells (blood)",
+                                "Treg_blood" = "T-regulatory cells (blood)",
+                                "Epithelial_saliva" = "Buccal epithelial cells (saliva)"))
+  return(new_names)
 }

@@ -1,0 +1,458 @@
+---
+title: 'Evaluating epigenetic clocks and scores: Cell type exploration'
+author: "Vera N. Karlbauer"
+date: "2026-06-05"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(
+  root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/evaluating_epigenetic_clocks_and_scores",
+  digits = 4, scipen = 6)
+```
+
+# Purpose:
+- Explores estimated cell type proportions
+- Correlations with chronological age (cross-sectional; Supplementary Table 12)
+- Timepoint & ELA effects & interaction (longitudinal; Supplementary Table 13)
+- Generates Supplementary Figure 6 (A-G)
+
+# Setup
+### Step 0: Load packages
+```{r, include = FALSE}
+# load packages
+library(rmarkdown)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(RColorBrewer)
+library(coxme)
+library(stringr)
+library(ggpubr)
+library(writexl)
+```
+
+### Step 1: Source functions and utilities
+
+```{r}
+source("./00_functions/01_functions.R")
+source("./00_functions/02_utilities.R")
+```
+
+### Step 2: Load data
+
+```{r, include = FALSE}
+# main data
+load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue_inner.Rdata")
+# all data (for longitudinal analyses)
+load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue.Rdata")
+# kinship matrix
+load("../../../01_data/02_proc/02_genotypes/qc-imputation_output/genotype_data/01_qc/13_ancestry_rels/K2H_SP1_2_3_4_genetic_kinship_matrix.Rdata")
+```
+
+# Analysis
+## Describe blood/saliva cell type proportions
+
+### Prepare data
+```{r}
+## subset data
+celltypes <- all_cross_tissue_inner %>%
+  filter(timepoint == "T0") %>%
+  select(child_id, CD4Tnv_blood, Baso_blood, CD4Tmem_blood, Bmem_blood, Bnv_blood, Treg_blood,
+         CD8Tmem_blood, CD8Tnv_blood, Eos_blood, NK_blood, Neu_blood, Mono_blood, Epithelial_saliva, Leukocytes_saliva)
+```
+
+### Summary table of median blood/saliva cell type proportions
+```{r}
+celltypes %>%
+  summarise(across(where(is.numeric), ~ round((median(.x) * 100), digits = 2)))
+```
+### Summary table of cell type proportions ranges
+```{r}
+celltypes %>%
+  summarise(across(where(is.numeric), 
+                   ~ paste0(round(min(.x) * 100, digits = 2), " - ", round(max(.x) *100, digits = 2))))
+```
+
+### Descriptive plot of blood/saliva cell type proportions
+```{r}
+celltypes <- all_cross_tissue_inner %>%
+  filter(timepoint == "T0") %>%
+  select(child_id, CD4Tnv_blood, Baso_blood, CD4Tmem_blood, Bmem_blood, Bnv_blood, Treg_blood,
+         CD8Tmem_blood, CD8Tnv_blood, Eos_blood, NK_blood, Neu_blood, Mono_blood, Epithelial_saliva,
+         Leukocytes_saliva)
+# transform to long
+celltypes_long <- pivot_longer(celltypes, 
+                                     cols = c(CD4Tnv_blood, Baso_blood, CD4Tmem_blood,
+                                              Bmem_blood, Bnv_blood, Treg_blood,
+                                              CD8Tmem_blood, CD8Tnv_blood, Eos_blood, NK_blood,
+                                              Neu_blood, Mono_blood, Epithelial_saliva, Leukocytes_saliva),
+                                     names_to = "celltype", values_to = "proportion_perc") %>%
+  mutate(
+    # create tissue variable
+    tissue = case_when(grepl("blood", celltype) == TRUE ~ "blood", TRUE ~ "saliva"),
+    celltype = sub('_.*','', celltype)) %>%
+  arrange(tissue)
+colorder <- c("Baso", "Bmem", "Bnv", "CD4Tmem", "CD4Tnv", "CD8Tmem", "CD8Tnv", "Eos", "Neu", "Mono", "NK", "Treg", "Epithelial", "Immune")
+
+## boxplot
+proportions_plot <- ggplot(data = celltypes_long, 
+                                   aes(x = celltype, y = proportion_perc, fill = tissue)) +
+  stat_boxplot(geom ='errorbar', width = 0.75) + 
+  geom_boxplot() +
+  ylab("Proportion (%)") +
+  scale_x_discrete(limit = colorder) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2), labels = scales::percent) +
+  scale_fill_brewer(palette = "Set1") +
+  geom_vline(xintercept = 12.5, color = "darkgrey", linewidth = 0.5, linetype = 2) + 
+  theme_bw() +
+  theme(legend.position = "inside", legend.position.inside = c(0.07, 0.75),
+        legend.background = element_rect(fill = "transparent"),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+        axis.title.x=element_blank())
+proportions_plot
+
+ggsave(filename = "./04_figures/supplementary_figure_6a_celltype_proportions.png", proportions_plot, dpi = 700, width = 20, height = 7, units = "cm")
+```
+
+## Correlations of cell type proportions with chrono age
+### Prepare data
+```{r}
+## define cell types: remove leukocytes (since saliva epithelial & leukocytes add up to 1)
+celltypes <- c("Baso_blood", "Bmem_blood", "Bnv_blood", "CD4Tmem_blood", "CD4Tnv_blood", "CD8Tmem_blood", "CD8Tnv_blood", "Eos_blood",  "Mono_blood", "Neu_blood", "NK_blood", "Treg_blood", "Epithelial_saliva")
+
+# exclude all children not in kinship matrix (no genotype data available = 2 kids = 4 observations)
+data_kin <- all_cross_tissue_inner %>%
+  filter(timepoint == "T0") %>%
+  filter(child_id %in% rownames(k2H_pcrelate_kinship_matrix))
+
+# filter kinship matrix
+kinship <- k2H_pcrelate_kinship_matrix[unique(data_kin$child_id), unique(data_kin$child_id)]
+```
+
+#### Test assoc of celltypes /w chrono age
+```{r}
+age_assoc <- data.frame(matrix(nrow = 0, ncol = 3))
+colnames(age_assoc) <- c("celltype", "coef_chrono_age", "p_chrono_age")
+
+# loop linear model with age, tissue, interaction and subject effect over all episcores
+for(celltype in celltypes){
+  # subset data
+  current_data = select(data_kin, celltype, bio_blood_age, bio_saliva_age, child_id) %>%
+    dplyr::rename("celltype" = celltype) %>%
+    filter(!is.na(celltype))
+  # select appropriate age variable
+  if(grepl("_blood", celltype) == TRUE) {
+    age = "bio_blood_age"} else {
+      age = "bio_saliva_age"
+    }
+  current_data = rename(current_data, "age" = age)
+  # fit model
+  fit = lmekin(formula = celltype ~ age + (1 | child_id),
+                       data = current_data,
+                       na.action = "na.omit", 
+               varlist = kinship)
+  sumstats = as.data.frame(extract_coxme_table(fit))
+  # extract results
+  coefs = data.frame(matrix(nrow = 1, ncol = 0))
+  coefs$celltype = celltype
+  coefs$coef_chrono_age = sumstats["age", "beta"]
+  coefs$p_chrono_age = sumstats["age", "p"]
+  # append results
+  age_assoc <- rbind(age_assoc, coefs) 
+}
+# FDR correction
+age_assoc$p_chrono_age_fdr <- p.adjust(age_assoc$p_chrono_age, method = "fdr")
+
+# round values
+age_assoc <- round_values(age_assoc)
+
+# show significantly age-associated celltypes 
+age_assoc %>% 
+  filter(p_chrono_age_fdr < 0.05)
+```
+
+### Export correlations as Supplementary Table 12
+```{r}
+# rename cell types to full names
+age_assoc <- age_assoc %>%
+  mutate(celltype = rename_celltypes(celltype))
+# export
+write_xlsx(age_assoc, path = "05_tables_for_publication/supptable_12_celltypes_crosssectional.xlsx", col_names = TRUE, format_headers = TRUE)
+```
+
+### Plot associations of chrono age with cell types
+#### Naïve CD4+ T-cells and memory CD4+ T-cells (blood)
+```{r}
+# transform data
+ageplot_long <- pivot_longer(data_kin, 
+                           cols = c("CD4Tmem_blood", "CD4Tnv_blood"), 
+                           names_to = "celltype",
+                           values_to = "proportion") %>%
+  select(child_id, celltype, proportion, bio_blood_age)
+
+# plot
+scatter_cd4t <- ggplot(ageplot_long, 
+             aes(y = proportion, x = bio_blood_age, color = celltype)) +
+    geom_point() + 
+    geom_smooth(method=lm) +
+    theme_bw() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_x_continuous(breaks = seq(3, 12.5, 2)) +
+    scale_color_manual("CD4+ T-cells", 
+                       values = c(brewer.pal(3, "Set1")[1], brewer.pal(9, "Set1")[9]),
+                       labels = c("Memory", "Naïve")) +
+    scale_fill_manual("CD4+ T-cells", 
+                       values = c(brewer.pal(3, "Set1")[1], brewer.pal(9, "Set1")[9]),
+                       labels = c("Memory", "Naïve")) +
+    xlab("Chronological age") + 
+    ylab("Proportion (%)") +
+    theme(
+      legend.position = "inside",
+          legend.position.inside = c(0.85, 0.83),
+          legend.background = element_rect(fill = "transparent"),
+          legend.key.size = unit(0.5, "cm"),
+          legend.title = element_text(size = 10, face = "bold"))
+scatter_cd4t
+
+ggsave(filename = "./04_figures/supplementary_figure_6b_scatter_CD4T.png", scatter_cd4t, dpi = 700, width = 10, height = 7, units = "cm")
+```
+
+#### Naïve CD8+ T-cells and memory CD84+ T-cells (blood)
+```{r}
+# transform data
+ageplot_long <- pivot_longer(data_kin, 
+                           cols = c("CD8Tmem_blood", "CD8Tnv_blood"), 
+                           names_to = "celltype",
+                           values_to = "proportion") %>%
+  select(child_id, celltype, proportion, bio_blood_age)
+
+# plot
+scatter_cd8t <- ggplot(ageplot_long, 
+             aes(y = proportion, x = bio_blood_age, color = celltype)) +
+    geom_point() + 
+    geom_smooth(method=lm) +
+    theme_bw() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_x_continuous(breaks = seq(3, 12.5, 2)) +
+    scale_color_manual("CD8+ T-cells", 
+                       values = c(brewer.pal(3, "Set1")[1], brewer.pal(9, "Set1")[9]),
+                       labels = c("Memory", "Naïve")) +
+    scale_fill_manual("CD8+ T-cells", 
+                       values = c(brewer.pal(3, "Set1")[1], brewer.pal(9, "Set1")[9]),
+                       labels = c("Memory", "Naïve")) +
+    xlab("Chronological age") + 
+    ylab("Proportion (%)") +
+    theme(
+      legend.position = "inside",
+          legend.position.inside = c(0.85, 0.83),
+          legend.background = element_rect(fill = "transparent"),
+          legend.key.size = unit(0.5, "cm"),
+          legend.title = element_text(size = 10, face = "bold"))
+scatter_cd8t
+
+ggsave(filename = "./04_figures/supplementary_figure_6c_scatter_CD8T.png", scatter_cd8t, dpi = 700, width = 10, height = 7, units = "cm")
+```
+
+#### BECs and immune cells (saliva)
+```{r}
+# transform data
+ageplot_long <- pivot_longer(data_kin, 
+                           cols = c("Epithelial_saliva", "Leukocytes_saliva"), 
+                           names_to = "celltype",
+                           values_to = "proportion") %>%
+  select(child_id, celltype, proportion, bio_saliva_age)
+
+# plot
+scatter_saliva <- ggplot(ageplot_long, 
+             aes(y = proportion, x = bio_saliva_age, color = celltype)) +
+    geom_point() + 
+    geom_smooth(method=lm) +
+    theme_bw() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_x_continuous(breaks = seq(3, 12.5, 2)) +
+    scale_color_manual("Salivary cells", 
+                       values = c(brewer.pal(3, "Set1")[2], brewer.pal(9, "Set1")[9]),
+                       labels = c("BECs", "Immune")) +
+    scale_fill_manual("Salivary cells", 
+                      values = c(brewer.pal(3, "Set1")[2], brewer.pal(9, "Set1")[9]),
+                      labels = c("BECs", "Immune")) +
+    xlab("Chronological age") + 
+    ylab("Proportion (%)") +
+    theme(legend.position = "inside", 
+          legend.position.inside = c(0.18, 0.82),
+          legend.background = element_rect(fill = "transparent"),
+          legend.key.size = unit(0.5, "cm"),
+          legend.title = element_text(size = 10, face = "bold"))
+scatter_saliva
+
+ggsave(filename = "./04_figures/supplementary_figure_6d_scatter_saliva.png", scatter_saliva, dpi = 700, width = 10, height = 7, units = "cm")
+```
+
+## Cell type change over time x ELA
+### Prepare data
+```{r}
+# define IDs with longl blood and saliva data
+ids_longl_blood <- all_cross_tissue %>%
+  filter(!is.na(arrayid_blood)) %>%
+  group_by(child_id) %>%
+  filter(n() >1) %>%
+  ungroup() %>%
+  pull(child_id) %>% 
+  unique()
+ids_longl_saliva <- all_cross_tissue %>%
+  filter(!is.na(arrayid_saliva)) %>%
+  group_by(child_id) %>%
+  filter(n() >1) %>%
+  ungroup() %>%
+  pull(child_id) %>% 
+  unique()
+
+# subset longitudinal data
+data_longl <- all_cross_tissue %>%
+  filter(child_id %in% rownames(k2H_pcrelate_kinship_matrix)) %>%
+  filter(child_id %in% ids_longl_blood | child_id %in% ids_longl_saliva) %>%
+  select(child_id, timepoint, group, celltypes) %>%
+  # transform timepoint to factor, 0 = baseline, 1 = follow-up
+  mutate(timepoint = as.factor(case_match(timepoint, "T0" ~ 0, "T2" ~ 1)))
+```
+
+### Test cell type change over time /w ELA effect
+```{r}
+# create empty results object
+longl_ela <- data.frame(matrix(nrow = 0, ncol = 7))
+colnames(longl_ela) <- c("sample_size", "coef_time", "p_time", "coef_ela", "p_ela", "coef_interaction", "p_interaction")
+
+# loop linear model with time, ela, interaction and subject effect over all cell types
+for(celltype in celltypes){
+  # subset data
+  current_data = select(data_longl, celltype, timepoint, group, child_id) %>%
+    dplyr::rename("celltype" = celltype) %>%
+    filter(!is.na(celltype)) %>%
+    group_by(child_id) %>%
+    filter(n() >1) %>%
+    ungroup()
+  kinship = k2H_pcrelate_kinship_matrix[current_data$child_id, current_data$child_id]
+  # fit model
+  fit = lmekin(formula = celltype ~ timepoint + group + group*timepoint + (1 | child_id),
+                       data = current_data,
+                       na.action = "na.omit", 
+               varlist = kinship)
+  sumstats = as.data.frame(extract_coxme_table(fit))
+  # extract results
+  coefs = data.frame(matrix(nrow = 1, ncol = 0))
+  coefs$celltype = celltype
+  coefs$sample_size = length(unique(current_data$child_id))
+  coefs$coef_time = sumstats["timepoint1", "beta"]
+  coefs$p_time = sumstats["timepoint1", "p"]
+  coefs$coef_ela = sumstats["group1", "beta"]
+  coefs$p_ela = sumstats["group1", "p"]
+  coefs$coef_interaction = sumstats["timepoint1:group1", "beta"]
+  coefs$p_interaction = sumstats["timepoint1:group1", "p"]
+  # append results
+  longl_ela <- rbind(longl_ela, coefs) 
+}
+# FDR correction
+length <- nrow(longl_ela)
+pvals <- c(longl_ela$p_time, longl_ela$p_ela, longl_ela$p_interaction)
+pvals_fdr <- p.adjust(pvals, method = "fdr")
+longl_ela$p_time_fdr <- pvals_fdr[1:length]
+longl_ela$p_ela_fdr <- pvals_fdr[(length + 1):(2*length)]
+longl_ela$p_interaction_fdr <- pvals_fdr[(2*length + 1):(3*length)]
+longl_ela <- longl_ela %>%
+  relocate(p_time_fdr, .after = p_time) %>%
+  relocate(p_ela_fdr, .after = p_ela) %>%
+  relocate(p_interaction_fdr, .after = p_interaction)
+
+# round values
+longl_ela <- round_values(longl_ela)
+
+# show associations
+longl_ela
+```
+
+### Export results as Supplementary Table 13
+```{r}
+# rename celltypes
+longl_ela <- longl_ela %>%
+  mutate(celltype = rename_celltypes(celltype))
+# export
+write_xlsx(longl_ela, path = "05_tables_for_publication/supptable_13_celltypes_longitudinal.xlsx", col_names = TRUE, format_headers = TRUE)
+```
+
+### Spaghetti plot cell type change over time in natural killer cells
+```{r}
+spaghetti_blood <- ggplot(data = data_longl, aes(y = NK_blood, x = timepoint)) +
+  geom_violin(fill = brewer.pal(3, "Set1")[1], alpha = 0.3) +
+  geom_boxplot(fill = "white", width = 0.3) +
+  geom_point(fill = brewer.pal(3, "Set1")[1], shape = 21) + 
+  geom_line(color = brewer.pal(3, "Set1")[1], aes(group = child_id), alpha = 0.5) + 
+  annotate("segment", x = 1, xend = 2, y = 0.095, yend = 0.095, colour = "black") +
+  annotate("text", x = 1.5, y = 0.105,
+           label = paste0("p = ", filter(longl_ela, celltype == "Natural killer cells (blood)")$p_time, " (nominal)"),
+           size = 3) +
+  theme_bw() +
+  xlab("Time point (∆ ~ 1 year)") + 
+  ylab("Proportion (%)") +
+  annotate("text", x = 0.9, y = 0.12,
+           label = "Natural killer cells",
+           size = 3.5, fontface = "bold")
+spaghetti_blood
+
+ggsave(filename = "./04_figures/supplementary_figure_6e_spaghetti_nk.png", spaghetti_blood, dpi = 700, width = 10, height = 7, units = "cm")
+```
+
+### Spaghetti plot cell type change over time in buccal epithelial cells
+```{r}
+spaghetti_saliva <- ggplot(data = data_longl, aes(y = Epithelial_saliva, x = timepoint)) +
+  geom_violin(fill = brewer.pal(3, "Set1")[2], alpha = 0.3) +
+  geom_boxplot(fill = "white", width = 0.3) +
+  geom_point(fill = brewer.pal(3, "Set1")[2], shape = 21) + 
+  geom_line(color = brewer.pal(3, "Set1")[2], aes(group = child_id), alpha = 0.5) + 
+  annotate("segment", x = 1, xend = 2, y = 0.6, yend = 0.6, colour = "black") +
+  annotate("text", x = 1.5, y = 0.63,
+           label = paste0("p = ", filter(longl_ela, celltype == "Buccal epithelial cells (saliva)")$p_time, " (n.s.)"),
+           size = 3) +
+  theme_bw() +
+  xlab("Time point (∆ ~ 1 year)") + 
+  ylab("Proportion (%)") +
+  annotate("text", x = 0.95, y = 0.7,
+           label = "Buccal epithelial cells",
+           size = 3.5, fontface = "bold") 
+
+spaghetti_saliva
+
+ggsave(filename = "./04_figures/supplementary_figure_6f_spaghetti_bec.png", spaghetti_saliva, dpi = 700, width = 10, height = 7, units = "cm")
+```
+
+#### Violin plot cell type change over time in memory CD8+ T-cells based on ELA status
+
+```{r}
+violin_cd8tmem <- ggplot(data = data_longl, 
+                         aes(y = CD8Tmem_blood, x = timepoint, group = interaction(timepoint, group))) +
+  geom_violin(trim = FALSE, position = position_dodge(0.75), aes(fill = group), width = 0.8) +
+  geom_boxplot(width = 0.1, position = position_dodge(0.75), fill = "white") +
+  annotate("segment", x = 1, xend = 2, y = 0.165, yend = 0.165, colour = "black") +
+  annotate("text", x = 1.5, y = 0.18, 
+           label = paste0("p = ", filter(longl_ela, celltype == "Memory CD8+ T-cells (blood)")$p_interaction, " (nominal)")) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual("ELA status",
+                    values = c(brewer.pal(9, "Set1")[9], brewer.pal(3, "Set1")[1]), labels = c("ELA-", "ELA+")) +
+  theme_bw() +
+  xlab("Time point (∆ ~ 1 year)") +
+  ylab("Proportion (%)") +
+  theme(legend.position = "inside", legend.position.inside = c(0.15, 0.8),
+        legend.key.size = unit(0.5, "cm"),
+        legend.title = element_text(size = 10),
+        legend.background = element_rect(fill = "transparent")) +
+  annotate("text", x = 2.05, y = 0.21,
+           label = "Memory CD8+ T-cells",
+           size = 3.5, fontface = "bold")
+
+violin_cd8tmem
+
+ggsave(filename = "./04_figures/supplementary_figure_6g_celltypes_ela.png", violin_cd8tmem, dpi = 700, width = 10, height = 7, units = "cm")
+```

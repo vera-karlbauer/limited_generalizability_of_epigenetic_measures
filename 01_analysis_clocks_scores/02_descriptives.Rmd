@@ -1,5 +1,5 @@
 ---
-title: "Limited generalizability of epigenetic measures: sample descriptives"
+title: "Evaluating epigenetic clocks and scores: sample descriptives"
 author: "Vera N. Karlbauer"
 contact: "vera_karlbauer@psych.mpg.de"
 date: "2024-12-12"
@@ -10,11 +10,11 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures", digits = 4, scipen = 6)
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/evaluating_epigenetic_clocks_and_scores", digits = 4, scipen = 6)
 ```
 
-# What this script does:
-- Generate sample demographics table (table 1; N, sex, ethnicity, age, age range) 
+# Purpose:
+- Generate sample demographics table (Table 1; N, sex, ethnicity, age, age range) 
 
 # Setup
 ### Step 0: Load packages

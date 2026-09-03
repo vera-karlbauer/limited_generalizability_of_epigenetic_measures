@@ -1,5 +1,5 @@
 ---
-title: "Limited generalizability of epigenetic measures: epigenetic clock cross-tissue correlations"
+title: "Evaluating epigenetic clocks and scores: epigenetic clock cross-tissue correlations"
 author: "Vera N. Karlbauer"
 contact: "vera_karlbauer@psych.mpg.de"
 date: "2024-12-10"
@@ -10,15 +10,15 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures")
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/evaluating_epigenetic_clocks_and_scores")
 ```
 
-# What this script does:
+# Purpose:
 - Correlate within-person Pearson correlations of epigenetic clocks between matched blood and saliva samples.
-- Calculate correlations separately for uncorrected and celltype-residualized clocks.
+- Calculate correlations separately for unadjusted and celltype-adjusted clocks.
 - Calculate correlations separately for epigenetic age ("Age"), epigenetic age acceleration ("Accel", epigenetic age residualized for chronological age), and epigenetic age delta ("Delta", epigenetic age minus chronological age).
 - For all correlations, also calculate corresponding ICC values (ICC2/random effects).
-- Plot results as corrplots (left side of Figure 4).
+- Plot results as corrplots (Figure 4A-B).
 - Export results as Supplementary Table 4.
 
 # Setup
@@ -50,7 +50,7 @@ source("./00_functions/02_utilities.R")
 load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue_inner.Rdata")
 ```
 
-### Step 3: Subset data (T0 only, clocks only, with vs. without cell type correction)
+### Step 3: Subset data (T0 only, clocks only, with vs. without cell type adjustment)
 
 ```{r}
 all_cross_tissue_inner <- all_cross_tissue_inner %>%
@@ -59,10 +59,10 @@ all_cross_tissue_inner <- all_cross_tissue_inner %>%
 
 # Cross-tissue correlation of clocks 
 
-## Calculate correlations with and without cell type correction
+## Calculate correlations with and without cell type adjustment
 
 ```{r}
-## no cell type correction
+## no cell type adjustment
 # subset data
 temp <- all_cross_tissue_inner %>%
   select(starts_with(c("epiage", "dunedin_pace"))) %>%
@@ -73,7 +73,7 @@ corrmat_age_nocelltypes <- cor(temp, use = "pairwise", method = "pearson")
 # test for significance
 pmat_age_nocelltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE, use = "pairwise")
 
-## cell type correction
+## cell type adjustment
 # subset data
 temp <- all_cross_tissue_inner %>%
   select(starts_with(c("epiage", "dunedin_pace"))) %>%
@@ -88,10 +88,10 @@ pmat_age_celltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pe
 
 # Cross-tissue correlation between acceleration estimates
 
-## Calculate correlations with and without cell type correction
+## Calculate correlations with and without cell type adjustment
 
 ```{r}
-## no cell type correction
+## no cell type adjustment
 # subset data
 temp <- all_cross_tissue_inner %>%
   select(starts_with(c("epiage_accel_"))) %>%
@@ -102,7 +102,7 @@ corrmat_accel_nocelltypes <- cor(temp, use = "pairwise", method = "pearson")
 # test for significance
 pmat_accel_nocelltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE, use = "pairwise")
 
-## cell type correction
+## cell type adjustment
 # subset data
 temp <- all_cross_tissue_inner %>%
   select(starts_with(c("epiage_accel_"))) %>%
@@ -117,10 +117,10 @@ pmat_accel_celltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "
 
 # Cross-tissue correlation between epigenetic age - chronological age deltas
 
-## Calculate correlations with and without cell type correction
+## Calculate correlations with and without cell type adjustment
 
 ```{r}
-## no cell type correction
+## no cell type adjustment
 # subset data
 temp <- all_cross_tissue_inner %>%
   select(starts_with(c("epiage_delta_"))) %>%
@@ -131,7 +131,7 @@ corrmat_delta_nocelltypes <- cor(temp, use = "pairwise", method = "pearson")
 # test for significance
 pmat_delta_nocelltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "pearson", alternative = "two.sided", exact = FALSE, use = "pairwise")
 
-## cell type correction
+## cell type adjustment
 # subset data
 temp <- all_cross_tissue_inner %>%
   select(starts_with(c("epiage_delta_"))) %>%
@@ -145,7 +145,7 @@ pmat_delta_celltypes <- cor.mtest(as.matrix(temp), conf.level = 0.95, method = "
 
 # Aggregate & plot cross-tissue correlations of clocks & acceleration estimates
 
-## Aggregate data without cell type correction
+## Aggregate data without cell type adjustment
 
 ```{r}
 ## without cell types
@@ -200,7 +200,7 @@ rownames(pmat_nocell) <- rename_clocks(rownames(pmat_nocell))
 pmat_nocell <- pmat_nocell[clockorder,]
 ```
 
-## Aggregate data with cell type correction
+## Aggregate data with cell type adjustment
 
 ```{r}
 ## with celltypes
@@ -255,15 +255,15 @@ rownames(pmat_cell) <- rename_clocks(rownames(pmat_cell)) %>% str_replace("_resi
 pmat_cell <- pmat_cell[clockorder,]  
 ```
 
-## Create combined correlation plot (Figure 4A)
+## Create combined correlation plot (Figure 4A & 4B)
 
 ```{r}
 ### create combined corrplot
 # initialize graphics device
-tiff(file = "04_figures/figure_4a_corrplot_all_epiage_measures_cross_tissue.png", height = 6.7, width = 5, units = 'in', res = 700)
+tiff(file = "04_figures/figure_4ab_corrplot_all_epiage_measures_cross_tissue.png", height = 6.7, width = 5, units = 'in', res = 700)
 par(mfrow=c(1,2),
-    mar = c(1,1,1,1),
-    oma = c(0,0,4,0))
+    mar = c(1,1,0,0),
+    oma = c(0,0,3,0))
 # Plot 1: without cell types
 par(xpd=TRUE)
 corrplot(corr = corrmat_nocell,
@@ -284,8 +284,8 @@ corrplot(corr = corrmat_nocell,
          pch.cex = 1.2,
          na.label = "NA",
          mar = c(0,0.2,0,1))
-mtext("A               Blood-saliva correlations per clock", side=3, line=3, at = 3.5, cex = 1.2, font = 2)
-mtext("without cell type correction", side=3, line=1, cex = 1, at = 1.5)
+mtext("A", side = 3, line = 1, at = -2.2, cex = 1.2, font = 2)
+mtext("Clocks (unadjusted)", side = 3, line = 1, at = 1, cex = 1, font = 2)
 # Plot 2: with cell types
 par(xpd=TRUE)
 corrplot(corr = corrmat_cell,
@@ -308,7 +308,8 @@ corrplot(corr = corrmat_cell,
          pch.cex = 1.2,
          na.label = "NA", 
          mar = c(0,0.2,0,1))
-mtext("with cell type correction", side=3, line=1, cex = 1, at = 1.5)
+mtext("B", side = 3, line = 1, at = -2.4, cex = 1.2, font = 2)
+mtext("Clocks (cell type adjusted)", side = 3, line = 1, at = 1, cex = 1, font = 2)
 
 # shut off
 dev.off()
@@ -318,7 +319,7 @@ dev.off()
 
 ```{r}
 # initialize graphics device
-tiff(file = "04_figures/figure_4c_corrplot_cross_tissue_colorscale.png", height = 7, width = 10, units = 'in', res = 700)
+tiff(file = "04_figures/figure_4e_corrplot_cross_tissue_colorscale.png", height = 7, width = 10, units = 'in', res = 700)
 # Placeholder plot with color scale
 corrplot(corr = t(corrmat_nocell),
          method = "color",
@@ -401,7 +402,7 @@ correlations_epiclocks <- correlations_epiclocks %>%
   mutate(epiclock = case_when(epiclock == "DunedinPACEAge" ~ "DunedinPACE", 
                               TRUE ~ epiclock))
 
-# run FDR correction
+# run FDR adjustment
 correlations_epiclocks <- correlations_epiclocks %>%
   mutate(p_fdr = p.adjust(
     c(correlations_epiclocks$p, correlations_epiclocks$p_celltype_adjusted), method = "fdr")[1:length(correlations_epiclocks$p)],
@@ -429,7 +430,7 @@ clocknames <- gsub("_blood", "",
 # define empty results object
 icc_epiclocks <- as.data.frame(matrix(nrow = 7, ncol = 0))
 # loop over all epiage measures
-# for each epiage measure, calculate ICC2 (random effects) with and without cell type correction
+# for each epiage measure, calculate ICC2 (random effects) with and without cell type adjustment
 for(i in 1:length(clocknames)) {
   clock = clocknames[i]
   icc_nocelltype = ICC(select(all_cross_tissue_inner, 

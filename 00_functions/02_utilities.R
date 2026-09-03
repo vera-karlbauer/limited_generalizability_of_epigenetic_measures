@@ -1,8 +1,8 @@
-### Title: "Cross-tissue correlations: Define utilities"
+### Title: "Evaluating epigenetic clocks and scores: Define utilities"
 ### Author: "Vera N. Karlbauer"
 ### Contact: "vera_karlbauer@psych.mpg.de"
 ### Date created: "2025-11-25"
-### Purpose: Define utlities for cross-tissue project
+### Purpose: Define utlities for data handling and plotting
 
 ### Define color palettes based on color brewer
 

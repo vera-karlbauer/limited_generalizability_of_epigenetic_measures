@@ -1,5 +1,5 @@
 ---
-title: "Limited generalizability of epigenetic measures: data preparation"
+title: "Evaluating epigenetic clocks and scores: data preparation"
 author: "Vera N. Karlbauer"
 contact: "vera_karlbauer@psych.mpg.de"
 date: "2024-12-03"
@@ -10,13 +10,13 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures")
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/evaluating_epigenetic_clocks_and_scores")
 ```
 
-# What this script does:
-- Aggregates and prepares epigenetic clocks and scores from blood and saliva in Kids2Health cohorts SP1/2/4. 
-- Creates versions of all epigenetic clocks, scores, and acceleration measures residualized against the respective estimated cell type proportions (epithelial cells for saliva, everything but neutrophils for blood). 
-- Exports complete dataset and "inner join" (children with both tissues only). 
+# Purpose:
+- Aggregate and prepare epigenetic clocks and scores from blood and saliva in Kids2Health cohorts SP1/2/4. 
+- Create versions of all epigenetic clocks, scores, and acceleration measures residualized against the respective estimated cell type proportions (epithelial cells for saliva, everything but neutrophils for blood). 
+- Export complete dataset and "inner join" (children with both tissues only). 
 
 ## Step 0: Load packages
 
@@ -26,7 +26,8 @@ library(rmarkdown)
 library(dplyr)
 library(tibble)
 library(janitor)
-
+library(readxl)
+library(ggplot2)
 ```
 
 ## Step 1: Load data
@@ -61,21 +62,11 @@ celltypes_unfiltered_saliva <- celltypes_unfiltered
 # blood
 load("../../../01_data/02_proc/01_epic/kids2health_sp1_2_4_blood_new/processed_data/final_data/celltypes_unfiltered.Rdata")
 
-# phenotypes (filter relevant variables immediately)
+# phenotypes
 load("../../../01_data/02_proc/05_complete_phenotypes/full_phenotypes_K2H_SP124.Rdata")
-full_phenotypes <- full_phenotypes %>%
-  select(child_id, zeitpunkt, group, ses_total, corona_ksl_01, corona_ksl_mix01, fasd_cat, ku_bmi, bmi_percentile, iq_sonr_nonverbal, iq_wisc, crp_pgML, telomere_length_blood_ts_ratio) %>%
-  # make sure trauma group is not-numeric
-  mutate(group = as.factor(group)) %>%
-  # recode & rename ethnicity variables
-  rename(ethnicity = corona_ksl_01,
-         ethnicity_mixed_spec = corona_ksl_mix01) %>%
-  mutate(ethnicity = case_match(ethnicity, 1 ~ "White", 2 ~ "Black", 3 ~ "Asian", 4 ~ "Mixed", 5 ~ "Other"),
-         ethnicity_mixed_spec = case_match(ethnicity_mixed_spec, 1 ~ "Mixed: White/Black", 2 ~ "Mixed: Asian/Black",
-                                           3 ~ "Mixed: White/Asian", 4 ~ "Mixed: Other")) %>%
-  # combine ethnicity variables into one variable
-  mutate(ethnicity = case_when(ethnicity == "Mixed" ~ ethnicity_mixed_spec, TRUE ~ ethnicity)) %>%
-  select(-ethnicity_mixed_spec)
+
+# Nightingale Plasma Metabolomics Panel (for total cholesterol, HDL-C, LDL-C, total triglycerides)
+metabolomics <- read_excel("../../../01_data//01_raw/SP_1_2_4_hormones_inflammation_nightingale/K2H nightingale panel.xlsx") 
 
 # blood betas (restrict to smoking CpG immediately)
 load("../../../01_data/02_proc/01_epic/kids2health_sp1_2_4_blood_new/processed_data/final_data/Betas_clean_unfiltered_quantile_bmiq_combated_pseudo_v1_final.Rdata") 
@@ -90,10 +81,114 @@ smoking_cpg_saliva <- as.data.frame(t(Betas_clean_unfiltered_quantile_bmiq_comba
   rownames_to_column(var = "arrayid") %>%
   select(arrayid, cg05575921)
 remove(Betas_clean_unfiltered_quantile_bmiq_combated_pseudo_v1)
-
 ```
 
-## Step 2: Aggregate blood data
+## Step 2: Process phenotype data
+
+```{r}
+## filter phenotypes and create surrogate variables
+full_phenotypes <- full_phenotypes %>%
+  select(child_id, zeitpunkt, group, ses_total,
+         corona_ksl_01, corona_ksl_mix01, fasd_cat, ku_bmi, bmi_percentile, 
+         iq_sonr_nonverbal, iq_wisc, crp_pgML, telomere_length_blood_ts_ratio,
+         ku_blutdr1_sys, ku_blutdr2_sys, ku_blutdr_sys_mw, 
+         ku_blutdr_dias_mw, ku_blutdr1_dias, ku_blutdr2_dias,
+         bodpodfm_i, bioproben_blood4) %>%
+  # make sure trauma group is not-numeric
+  mutate(group = as.factor(group)) %>%
+  # recode & rename ethnicity variables
+  rename(ethnicity = corona_ksl_01,
+         ethnicity_mixed_spec = corona_ksl_mix01) %>%
+  mutate(ethnicity = case_match(ethnicity, 1 ~ "White", 2 ~ "Black", 3 ~ "Asian", 4 ~ "Mixed", 5 ~ "Other"),
+         ethnicity_mixed_spec = case_match(ethnicity_mixed_spec, 1 ~ "Mixed: White/Black", 2 ~ "Mixed: Asian/Black",
+                                           3 ~ "Mixed: White/Asian", 4 ~ "Mixed: Other")) %>%
+  # combine ethnicity variables into one variable
+  mutate(ethnicity = case_when(ethnicity == "Mixed" ~ ethnicity_mixed_spec, TRUE ~ ethnicity)) %>%
+  select(-ethnicity_mixed_spec) %>%
+  # extract fasting status at blood sample from free text comments
+  mutate(blood_sample_fasted = case_when(grepl("nicht nüchtern", bioproben_blood4) == TRUE ~ FALSE,
+                                          TRUE ~ TRUE)) %>%
+  # log-normalize CRP
+  mutate(crp_pgML_ln = log(crp_pgML)) %>%
+  # rename health biomarkers
+  rename(bp_systolic = ku_blutdr_sys_mw,
+         bp_diastolic = ku_blutdr_dias_mw,
+         bodpod_fatmass = bodpodfm_i)
+
+## blood pressure QC
+# flag systolic < diastolic
+full_phenotypes %>%
+  filter(bp_systolic < bp_diastolic) %>%
+  nrow()
+full_phenotypes %>%
+  filter(ku_blutdr1_sys < ku_blutdr1_dias) %>%
+  nrow()
+full_phenotypes %>%
+  filter(ku_blutdr2_sys < ku_blutdr2_dias) %>%
+  nrow()
+# flag biologically implausible averages
+full_phenotypes %>%
+  filter(bp_systolic >200) %>%
+  nrow()
+full_phenotypes %>%
+  filter(bp_systolic <70) %>%
+  nrow()
+# flag range between 2 repeated measurements exceeding >30
+full_phenotypes %>%
+  filter(abs(ku_blutdr1_sys - ku_blutdr2_sys) >30) %>%
+  mutate(range_systolic = abs(ku_blutdr1_sys - ku_blutdr2_sys)) %>%
+  nrow()
+# exclude observation(s) with range between 2 repeated measurements exceeding >30
+full_phenotypes <- full_phenotypes %>%
+  mutate(bp_systolic = case_when(abs(ku_blutdr1_sys - ku_blutdr2_sys) >30 ~ NA,
+                                 TRUE ~ bp_systolic))
+# remove unnecessary bp variables
+full_phenotypes <- full_phenotypes %>%
+  select(-c(ku_blutdr1_sys, ku_blutdr2_sys, ku_blutdr1_dias, ku_blutdr2_dias, bp_diastolic))
+```
+
+### Step 3: Process metabolomics
+
+```{r}
+## process metabolomics data
+metabolomics <- metabolomics %>%
+  # recode ID, set timepoint to T0 (not sampled at T2)
+  mutate(child_id = tolower(kids2health_id),
+         timepoint = rep("T0", length(child_id))) %>%
+  # extract total cholesterol, HDL-C, LDL-C, total triglycerides
+  select(child_id, timepoint, TotalC, LDLC, HDLC, TotalTG) %>%
+  # remove NAs
+  filter(!(is.na(TotalC) & is.na(LDLC) & is.na(HDLC) & is.na(TotalTG))) %>%
+  # remove children who did not fast before blood sample (N=5)
+  filter(!(child_id %in% filter(full_phenotypes, zeitpunkt == "T0" 
+                                & blood_sample_fasted == FALSE)$child_id))
+
+## detect metabolite outliers >5SD from mean
+# visualize outliers
+metabolites <- c("TotalC", "LDLC", "HDLC", "TotalTG")
+for(i in 1:4) {
+  current_metabolite = metabolites[i]
+  current_data = rename(metabolomics, "metabolite" = current_metabolite)
+  plot = ggplot(data = current_data,
+       aes(y = metabolite)) +
+    geom_boxplot() +
+    geom_hline(yintercept = c((mean(current_data$metabolite,
+                                 na.rm = TRUE) + 
+                              5*sd(current_data$metabolite,
+                                   na.rm = TRUE)),
+                           (mean(current_data$metabolite,
+                                 na.rm = TRUE) - 
+                              5*sd(current_data$metabolite,
+                                   na.rm = TRUE))),
+             color = "red", linetype = "dashed") +
+    ylim(c(min(current_data$metabolite), max(current_data$metabolite))) +
+    ggtitle(current_metabolite) +
+    theme_bw()
+  print(plot)
+}
+```
+
+## Step 4: Aggregate blood data
 
 ```{r}
 all_blood <- full_join(k2h_blood_epiclocks, epigenetic_bmi_score_do_2023_blood, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"))
@@ -106,7 +201,7 @@ all_blood <- full_join(all_blood, smoking_cpg_blood, by = c("arrayid"))
 all_blood <- full_join(all_blood, celltypes_unfiltered, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"  = "timepoint", "teilprojekt" = "subproject"))
 ```
 
-## Step 4: Aggregate saliva data
+## Step 3: Aggregate saliva data
 
 ```{r}
 all_saliva <- full_join(k2h_saliva_epiclocks, epigenetic_bmi_score_do_2023_saliva, by = c("sample_ID", "arrayid", "child_id", "zeitpunkt"))
@@ -172,7 +267,6 @@ all_saliva <- left_join(all_saliva, clocks_saliva_celltype_corrected)
 
 ```
 
-
 ## Step 6: Combine blood and saliva data & append phenotypes
 
 ```{r}
@@ -206,6 +300,9 @@ all_cross_tissue <- all_cross_tissue %>%
 
 # append phenotypes
 all_cross_tissue <- left_join(all_cross_tissue, full_phenotypes, by = c("child_id", "timepoint" = "zeitpunkt"))
+
+# append Nightingale metabolites
+all_cross_tissue <- left_join(all_cross_tissue, metabolomics, by = c("child_id", "timepoint"))
 
 # create chronological age variable (age at blood or saliva sample, only used for plotting)
 # age at blood and saliva sampling only deviates for 3 observations (9-35 days difference) - chronological age is set to saliva age for plotting, but is not used for statistical analysis

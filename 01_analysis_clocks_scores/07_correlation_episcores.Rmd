@@ -1,5 +1,5 @@
 ---
-title: "Limited generalizability of epigenetic measures: epigenetic score cross-tissue correlations"
+title: "Evaluating epigenetic clocks and scores: epigenetic score cross-tissue correlations"
 author: "Vera N. Karlbauer"
 contact: "vera_karlbauer@psych.mpg.de"
 date: "2024-12-04"
@@ -10,14 +10,14 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures")
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/evaluating_epigenetic_clocks_and_scores")
 ```
 
-# What this script does:
+# Purpose:
 - Correlate within-person Pearson correlations of epigenetic scores between matched blood and saliva samples.
-- Calculate correlations separately for uncorrected and celltype-residualized scores.
+- Calculate correlations separately for unadjusted and celltype-adjusted scores.
 - For all correlations, also calculate corresponding ICC values (ICC2/random effects).
-- Plot results as corrplots (right side of Figure 4).
+- Plot results as corrplots (Figure 4 C-D).
 - Export results as Supplementary Table 5.
 
 # Setup
@@ -49,7 +49,7 @@ source("./00_functions/02_utilities.R")
 load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue_inner.Rdata")
 ```
 
-### Step 3: Subset data (T0 only, scores only, with vs. without cell type correction)
+### Step 3: Subset data (T0 only, scores only, with vs. without cell type adjustment)
 
 ```{r}
 all_cross_tissue_inner <- all_cross_tissue_inner %>%
@@ -93,7 +93,7 @@ episcores_celltypes <- all_cross_tissue_inner %>%
 
 # Cross-tissue correlations
 
-## Without cell type correction
+## Without cell type adjustment
 
 ### Calculate significant correlations
 
@@ -104,7 +104,7 @@ corrmat_nocelltypes <- cor(episcores_nocelltypes, use = "pairwise", method = "pe
 pmat_nocelltypes <- cor.mtest(as.matrix(episcores_nocelltypes), conf.level = 0.95, method = "pearson", alternative = "two.sided", use = "pairwise", exact = FALSE)
 ```
 
-## With cell type correction
+## With cell type adjustment
 
 ### Calculate significant correlations 
 
@@ -117,7 +117,7 @@ pmat_celltypes <- cor.mtest(as.matrix(episcores_celltypes), conf.level = 0.95, m
 
 # Plot episcore correlations in "slim" format
 
-### Format data without cell type correction
+### Format data without cell type adjustment
 
 ```{r}
 ## without cell types
@@ -138,7 +138,7 @@ rownames(pmat_nocell) <- rownames(corrmat_nocell)
 colnames(pmat_nocell) <- "episcore"
 ```
 
-### Format data with cell type correction
+### Format data with cell type adjustment
 
 ```{r}
 ## without cell types
@@ -159,14 +159,14 @@ rownames(pmat_cell) <- rownames(corrmat_cell)
 colnames(pmat_cell) <- "episcore"
 ```
 
-### Create combined correlation plot (Figure 4B)
+### Create combined correlation plot (Figure 4C & 4D)
 
 ```{r}
 # initialize graphics device
-tiff(file = "04_figures/figure_4b_corrplot_all_episcores_cross_tissue.png", height = 6.7, width = 5, units = 'in', res = 700)
+tiff(file = "04_figures/figure_4cd_corrplot_all_episcores_cross_tissue.png", height = 6.7, width = 5, units = 'in', res = 700)
 par(mfrow=c(1,2),
-    mar = c(1,1,1,1),
-    oma = c(0,0,4,0))
+    mar = c(1,1,0,0),
+    oma = c(0,0,3,0))
 # Plot 1: without cell types
 par(xpd=TRUE)
 corrplot(corr = corrmat_nocell,
@@ -187,8 +187,8 @@ corrplot(corr = corrmat_nocell,
          pch.cex = 1.2,
          na.label = "NA",
          mar = c(0,0.2,0,1))
-mtext("B               Blood-saliva correlations per score", side=3, line=3, at = 1.5, cex = 1.2, font = 2)
-mtext("without cell type correction", side=3, line=1, cex = 1, at = 0)
+mtext("C", side = 3, line = 1, at = -2.9, cex = 1.2, font = 2)
+mtext("Scores (unadjusted)", side = 3, line = 1, at = -0.5, cex = 1, font = 2)
 # Plot 2: with cell types
 par(xpd=TRUE)
 corrplot(corr = corrmat_cell,
@@ -209,7 +209,8 @@ corrplot(corr = corrmat_cell,
          pch.cex = 1.2,
          na.label = "NA", 
          mar = c(0,0.2,0,1))
-mtext("with cell type correction", side=3, line=1, cex = 1, at = 0)
+mtext("D", side = 3, line = 1, at = -3, cex = 1.2, font = 2)
+mtext("Scores (cell type adjusted)", side = 3, line = 1, at = -0.4, cex = 1, font = 2)
 
 # shut off
 dev.off()
@@ -245,14 +246,15 @@ correlations_episcores <- full_join(corrmat_nocell, pmat_nocell, by = "episcore"
 correlations_episcores <- full_join(correlations_episcores, corrmat_cell, by = "episcore")
 correlations_episcores <- full_join(correlations_episcores, pmat_cell, by = "episcore")
 
-# run FDR correction
+# run FDR adjustment
 correlations_episcores <- correlations_episcores %>%
   mutate(p_fdr = p.adjust(
     c(correlations_episcores$p, correlations_episcores$p_celltype_adjusted), 
     method = "fdr")[1:length(correlations_episcores$p)],
          p_fdr_celltype_adjusted = p.adjust(
            c(correlations_episcores$p, correlations_episcores$p_celltype_adjusted),
-           method = "fdr")[(length(correlations_episcores$p)+1):(2*length(correlations_episcores$p_celltype_adjusted))])
+           method = "fdr")[(length(correlations_episcores$p)+1):(2*length(correlations_episcores$p_celltype_adjusted))]) %>% 
+  relocate(p_fdr, .after = p)
 
 ```
 
@@ -265,7 +267,7 @@ scorenames <- unique(gsub("_saliva", "", gsub("_blood", "", colnames(episcores_n
 # define empty results object
 icc_episcores <- as.data.frame(matrix(nrow = 7, ncol = 0))
 # loop over all episcores measures
-# for each episcore, calculate ICC2 (random effects) with and without cell type correction
+# for each episcore, calculate ICC2 (random effects) with and without cell type adjustment
 for(i in 1:length(scorenames)) {
   score = scorenames[i]
   icc_nocelltype = ICC(select(all_cross_tissue_inner, 

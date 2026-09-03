@@ -1,5 +1,5 @@
 ---
-title: "Limited generalizability of epigenetic measures: epigenetic score performance"
+title: "Evaluating epigenetic clocks and scores: epigenetic score performance"
 author: "Vera N. Karlbauer"
 contact: "vera_karlbauer@psych.mpg.de"
 date: "2024-12-04"
@@ -10,11 +10,11 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/limited_generalizability_of_epigenetic_measures", 
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/evaluating_epigenetic_clocks_and_scores", 
                      digits = 4, scipen = 6)
 ```
 
-# What this script does:
+# Purpose:
 - Test epigenetic score performance (= linear association with corresponding measured phenotype).
 - For each epigenetic score, test its association with phenotype by tissue.
 - Linear model: episcore ~ phenotype + tissue + phenotype * tissue.
@@ -22,7 +22,7 @@ knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_
 - Additionally (to better characterize strength of linear association), calculate Spearman correlation between epigenetic score and phenotype separately per tissue.
 - Repeat all models with and without cell type correction.
 - Visualize all linear models as dotplots with regression lines; add Pearson correlation per tissue as label.
-- Combine lineplots for each epigenetic score with/without celltype correction into one plot (extended data Figure 2).
+- Combine lineplots for each epigenetic score with/without celltype correction into one plot (Supplementary Figure 3).
 - Select exemplary line plots (for CRP Wielscher, DNAmTL) and export as Figure 3.
 - Export results as Supplementary Table 3.
 
@@ -71,13 +71,9 @@ all_cross_tissue_inner <- all_cross_tissue_inner %>%
          starts_with("epiage_pc_telo_"),
          bmi_percentile,
          ku_bmi,
-         crp_pgML,
+         crp_pgML_ln,
          telomere_length_blood_ts_ratio,
          iq_sonr_nonverbal)
-
-# log-normalize CRP (also done in original paper)
-all_cross_tissue_inner <- all_cross_tissue_inner %>%
-  mutate(crp_pgML_ln = log(crp_pgML))
 
 # transform to long format
 episcores_long <- pivot_longer(all_cross_tissue_inner,
@@ -102,7 +98,6 @@ unique_scores <- data.frame(cbind(c("epigenetic_bmi_score_do_2023", "epigenetic_
 colnames(unique_scores) <- c("episcore", "phenotype")
 ```
 
-
 # Analysis 
 
 ## Prediction models: epigenetic scores ~ corresponding phenotypes
@@ -111,8 +106,9 @@ colnames(unique_scores) <- c("episcore", "phenotype")
 
 ```{r}
 # create empty results object
-results_kin_nocelltypes <- data.frame(matrix(nrow = 0, ncol = 6))
-colnames(results_kin_nocelltypes) <- c("coef_pheno", "p_pheno", 
+results_kin_nocelltypes <- data.frame(matrix(nrow = 0, ncol = 7))
+colnames(results_kin_nocelltypes) <- c("sample_size",
+                                       "coef_pheno", "p_pheno", 
                                          "coef_tissue", "p_tissue", 
                                          "coef_interaction", 
                                          "p_interaction")
@@ -123,7 +119,8 @@ for(score in unique_scores$episcore){
   pheno = filter(unique_scores, episcore == score)$phenotype
   current_data = select(episcores_kin, score, pheno, tissue, child_id) %>%
     rename("score" = score,
-      "pheno" = pheno)
+      "pheno" = pheno) %>%
+    filter(!is.na(score) & !is.na(pheno))
   # fit model
   fit = lmekin(formula = score ~ pheno + pheno*tissue + (1 | child_id),
                        data = current_data,
@@ -134,6 +131,7 @@ for(score in unique_scores$episcore){
   coefs = data.frame(matrix(nrow = 1, ncol = 0))
   coefs$episcore = score
   coefs$phenotype = pheno
+  coefs$sample_size = length(unique(current_data$child_id))
   coefs$coef_pheno = sumstats["pheno",]$beta
   coefs$p_pheno = sumstats["pheno",]$p
   coefs$coef_tissue = sumstats["tissuesaliva",]$beta
@@ -153,8 +151,9 @@ for(score in unique_scores$episcore){
 unique_scores$episcore_resid <- paste0(unique_scores$episcore, "_resid")
 
 # create empty results object
-results_kin_celltypes <- data.frame(matrix(nrow = 0, ncol = 6))
-colnames(results_kin_celltypes) <- c("coef_pheno", "p_pheno", 
+results_kin_celltypes <- data.frame(matrix(nrow = 0, ncol = 7))
+colnames(results_kin_celltypes) <- c("sample_size",
+                                     "coef_pheno", "p_pheno", 
                                          "coef_tissue", "p_tissue", 
                                          "coef_interaction", 
                                          "p_interaction")
@@ -165,7 +164,8 @@ for(score in unique_scores$episcore_resid){
   pheno = filter(unique_scores, episcore_resid == score)$phenotype
   current_data = select(episcores_kin, score, pheno, tissue, child_id) %>%
     rename("score" = score,
-      "pheno" = pheno)
+      "pheno" = pheno) %>%
+    filter(!is.na(score) & !is.na(pheno))
   # fit model
   fit = lmekin(formula = score ~ pheno + pheno*tissue + (1 | child_id),
                        data = current_data,
@@ -176,6 +176,7 @@ for(score in unique_scores$episcore_resid){
   coefs = data.frame(matrix(nrow = 1, ncol = 0))
   coefs$episcore = score
   coefs$phenotype = pheno
+  coefs$sample_size = length(unique(current_data$child_id))
   coefs$coef_pheno = sumstats["pheno",]$beta
   coefs$p_pheno = sumstats["pheno",]$p
   coefs$coef_tissue = sumstats["tissuesaliva",]$beta
@@ -257,7 +258,10 @@ performance_per_tissue <- performance_per_tissue %>%
 temp_celltype <- results_kin_celltypes %>%
   mutate(episcore = str_replace(episcore, "_resid", ""))
 colnames(temp_celltype) <- paste0(colnames(temp_celltype), "_celltype_adjusted")
-results_episcore_performance_kin <- full_join(results_kin_nocelltypes, temp_celltype, join_by("episcore" == "episcore_celltype_adjusted", "phenotype" == "phenotype_celltype_adjusted"))
+results_episcore_performance_kin <- full_join(results_kin_nocelltypes, temp_celltype,
+                                              join_by("episcore" == "episcore_celltype_adjusted",
+                                                      "phenotype" == "phenotype_celltype_adjusted",
+                                                      "sample_size" == "sample_size_celltype_adjusted"))
 
 # FDR-correct interaction p-values
 fdr_performance <- p.adjust(
@@ -405,7 +409,8 @@ lineplot_nocell_epigenetic_bmi_score_wahl_2017 <- lineplot_nocell_epigenetic_bmi
   xlab("BMI") 
 lineplot_nocell_epigenetic_crp_score_wielscher_2022 <- lineplot_nocell_epigenetic_crp_score_wielscher_2022 +
   ylab("Epigenetic CRP (Wielscher 2022)") +
-  xlab("Log-transformed CRP")
+  xlab("Log-transformed CRP") +
+  theme(plot.title = element_text(size = 9))
 lineplot_nocell_epigenetic_crp_score_ligthart_2016 <- lineplot_nocell_epigenetic_crp_score_ligthart_2016 +
   ylab("Epigenetic CRP (Ligthart 2016)") +
   xlab("Log-transformed CRP")
@@ -422,7 +427,8 @@ lineplot_cell_epigenetic_bmi_score_wahl_2017_resid  <- lineplot_cell_epigenetic_
   ylab("Residualized epigenetic BMI (Wahl 2017)") 
 lineplot_cell_epigenetic_crp_score_wielscher_2022_resid  <- lineplot_cell_epigenetic_crp_score_wielscher_2022_resid  +
   ylab("Residualized epigenetic CRP (Wielscher 2022)") +
-  xlab("Log-transformed CRP")
+  xlab("Log-transformed CRP") +
+  theme(plot.title = element_text(size = 9))
 lineplot_cell_epigenetic_crp_score_ligthart_2016_resid  <- lineplot_cell_epigenetic_crp_score_ligthart_2016_resid  +
   ylab("Residualized epigenetic CRP (Ligthart 2016)") +
   xlab("Log-transformed CRP")
@@ -445,7 +451,7 @@ for(score in unique_scores$episcore){
   filename = paste0("./04_figures/lineplot_", score, ".png")
   png(filename = filename, width = 20, height = 14, res = 700, units = "cm")
   print(annotate_figure(combined,
-                top = text_grob("uncorrected                                             cell type corrected",
+                top = text_grob("unadjusted                                             cell type adjusted",
                                 size = 14, face = "bold")))
   # export
   dev.off()
@@ -453,11 +459,11 @@ for(score in unique_scores$episcore){
 
 ```
 
-### Combine all line plots and export (= eFigure 3)
+### Combine all line plots and export (= Supplementary Figure 3)
 
 ```{r}
 ## arrange & export all plots
-png(filename = "./04_figures/extended_figure_2_combined_lineplot_all_scores.png", 
+png(filename = "./04_figures/supplementary_figure_3_combined_lineplot_all_scores.png", 
     width = 21, height = 30, res = 700, units = "cm")
 combined_lineplot <- ggarrange(lineplot_nocell_epigenetic_bmi_score_do_2023,
                                lineplot_cell_epigenetic_bmi_score_do_2023_resid,
@@ -483,7 +489,7 @@ combined_lineplot <- ggarrange(lineplot_nocell_epigenetic_bmi_score_do_2023,
                         legend = "bottom")
 
 annotate_figure(combined_lineplot,
-                top = text_grob("         uncorrected            cell type corrected           uncorrected            cell type corrected",
+                top = text_grob("         unadjusted            cell type adjusted           unadjusted            cell type adjusted",
                                                      size = 14, face = "bold"), 
                 fig.lab.pos = "top")
 

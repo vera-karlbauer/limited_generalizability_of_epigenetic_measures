@@ -1,0 +1,417 @@
+---
+title: 'Evaluating epigenetic clocks and scores: Biomarker associations'
+author: "Vera N. Karlbauer"
+contact: "vera_karlbauer@psych.mpg.de"
+date: "2026-08-09"
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/evaluating_epigenetic_clocks_and_scores", digits = 4, scipen = 6)
+```
+
+# Purpose:  
+- As additional benchmarks for epigenetic clocks, test associations with clinical cardiometabolic markers.
+- Compare effect sizes between tissues.
+- Epigenetic measures: 14 epigenetic clocks, chronological & biological.
+- Clinical markers: Systolic blood pressure, BodPod fat mass, metabolites from Nightingale CoreMetabolomics panel (based on fasting plasma):
+  - Total cholesterol
+  - HDL cholesterol 
+  - LDL cholesterol
+  - Total triglycerides
+- Covariates: age, sex, kinship matrix (ancestry & relatedness).
+- Additional control for estimated cell type composition (analyses run with and without). 
+- FDR-correct over all clocks per biomarker.
+- Plot results as barplot (Figure 7 and Supplementary Figure 5).
+- Export results as Supplementary Table 11.
+
+# Setup
+### Step 0: Load packages
+
+```{r}
+library(rmarkdown)
+library(dplyr)
+library(RColorBrewer)
+library(coxme)
+library(writexl)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+library(ggpubr)
+library(ggpattern)
+```
+
+
+### Step 1: Source functions and utilities
+
+```{r}
+source("./00_functions/01_functions.R")
+source("./00_functions/02_utilities.R")
+```
+
+### Step 2: Load data
+
+```{r, include = FALSE}
+# main data
+load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue_inner.Rdata")
+# kinship matrix
+load("../../../01_data/02_proc/02_genotypes/qc-imputation_output/genotype_data/01_qc/13_ancestry_rels/K2H_SP1_2_3_4_genetic_kinship_matrix.Rdata")
+```
+
+### Step 3: Prepare data 
+
+```{r}
+# filter data
+all_cross_tissue_inner <- all_cross_tissue_inner %>%
+  filter(child_id %in% rownames(k2H_pcrelate_kinship_matrix)) %>%
+  filter(timepoint == "T0")
+
+# filter kinship matrix
+kinship <- k2H_pcrelate_kinship_matrix[unique(all_cross_tissue_inner$child_id), unique(all_cross_tissue_inner$child_id)]
+```
+
+# Analysis: Clinical biomarker associations
+
+### Loop associations across all clocks and biomarkers in blood and saliva with and without correction for smoke exposure and estimated cell type composition
+
+```{r}
+# define epigenetic measures
+epimeasures <- gsub("_saliva", "", 
+                    colnames(all_cross_tissue_inner %>%
+                               select(contains("saliva")) %>%
+                               select(starts_with("epiage_accel") 
+                                      | starts_with("dunedin_pace")) %>%
+                               select(!contains("resid"))))
+# define biomarkers
+biomarkers <- c("bp_systolic", "bodpod_fatmass", "TotalC", "LDLC", "HDLC", "TotalTG")
+# create empty results object
+results_biomarkers <- data.frame(matrix(nrow = 0, ncol = 11))
+colnames(results_biomarkers) <- c("epigenetic_measure", "biomarker", "sample_size",
+                                  "beta_std_blood_minimal_model", "p_blood_minimal_model",
+                                  "beta_std_blood_smoking_celltype_adjusted",
+                                  "p_blood_smoking_celltype_adjusted", 
+                                  "beta_std_saliva_minimal_model", "p_saliva_minimal_model",
+                                  "beta_std_saliva_smoking_celltype_adjusted",
+                                  "p_saliva_smoking_celltype_adjusted")
+
+# loop linear model over all epigenetic measures and biomarkers in blood and saliva
+for(marker in biomarkers){
+  for(epimeasure in epimeasures){
+    # subset blood data
+    current_data_blood = select(all_cross_tissue_inner, 
+                              paste0(epimeasure, "_blood"), marker,
+                              child_id,
+                              bio_blood_age, sex, 
+                              cg05575921_blood,
+                              CD4Tnv_blood, Baso_blood, CD4Tmem_blood, Bmem_blood,
+                              Bnv_blood, Treg_blood, CD8Tmem_blood, CD8Tnv_blood,
+                              Eos_blood, NK_blood, Mono_blood) %>%
+      dplyr::rename("epimeasure" = paste0(epimeasure, "_blood")) %>%
+      dplyr::rename("marker" = marker) %>%
+      # standardize all numerical variables to mean = 0, sd = 1 (to get standardized betas)
+      mutate(across(where(is.numeric), scale))
+    # fit basic model in blood (only adjusted for age, sex, kinship)
+    fit_blood_minimal = lmekin(formula = marker ~ epimeasure + bio_blood_age + sex + 
+                         (1 | child_id),
+                       data = current_data_blood,
+                       na.action = "na.omit", 
+                       varlist = kinship)
+    sumstats_blood_minimal = extract_coxme_table(fit_blood_minimal)
+    # extract results blood minimal
+    coefs = data.frame(matrix(nrow = 1, ncol = 0))
+    coefs$epigenetic_measure = epimeasure
+    coefs$biomarker = marker
+    coefs$sample_size = nrow(filter(current_data_blood, !is.na(marker)))
+    coefs$beta_std_blood_minimal_model = sumstats_blood_minimal["epimeasure",]$beta
+    coefs$p_blood_minimal_model = sumstats_blood_minimal["epimeasure",]$p
+    # fit model in blood adjusted for age, sex, kinship, epigenetic smoke exposure proxy, estimated cell types
+    fit_blood_full = lmekin(formula = marker ~ epimeasure + bio_blood_age + sex + 
+                         cg05575921_blood +
+                         CD4Tnv_blood + Baso_blood + CD4Tmem_blood + Bmem_blood + 
+                         Bnv_blood + Treg_blood + CD8Tmem_blood + CD8Tnv_blood + 
+                         Eos_blood + NK_blood + Mono_blood +
+                         (1 | child_id),
+                       data = current_data_blood,
+                       na.action = "na.omit", 
+                       varlist = kinship)
+    sumstats_blood_full = extract_coxme_table(fit_blood_full)
+    # extract results blood full
+    coefs$beta_std_blood_smoking_celltype_adjusted = sumstats_blood_full["epimeasure",]$beta
+    coefs$p_blood_smoking_celltype_adjusted = sumstats_blood_full["epimeasure",]$p
+    # subset saliva data
+    current_data_saliva = select(all_cross_tissue_inner, 
+                              paste0(epimeasure, "_saliva"), marker,
+                              child_id,
+                              bio_saliva_age, sex,
+                              cg05575921_saliva,
+                              Epithelial_saliva) %>%
+      dplyr::rename("epimeasure" = paste0(epimeasure, "_saliva")) %>%
+      dplyr::rename("marker" = marker) %>%
+      # standardize all numerical variables to mean = 0, sd = 1 (to get standardized betas)
+      mutate(across(where(is.numeric), scale))
+    # fit basic model in saliva (only adjusted for age, sex, kinship)
+    fit_saliva_minimal = lmekin(formula = marker ~ epimeasure + bio_saliva_age + sex + 
+                         (1 | child_id),
+                       data = current_data_saliva,
+                       na.action = "na.omit", 
+                       varlist = kinship)
+    sumstats_saliva_minimal = extract_coxme_table(fit_saliva_minimal)
+    # extract results saliva minimal
+    coefs$beta_std_saliva_minimal_model = sumstats_saliva_minimal["epimeasure",]$beta
+    coefs$p_saliva_minimal_model = sumstats_saliva_minimal["epimeasure",]$p
+    # fit full model in saliva adjusted for age, sex, kinship, epigenetic smoke exposure proxy, estimated cell types
+    fit_saliva_full = lmekin(formula = marker ~ epimeasure + bio_saliva_age + sex + 
+                          cg05575921_saliva + Epithelial_saliva + 
+                          (1 | child_id),
+                       data = current_data_saliva,
+                       na.action = "na.omit", 
+                       varlist = kinship)
+    sumstats_saliva_full = extract_coxme_table(fit_saliva_full)
+    # extract results saliva
+    coefs$beta_std_saliva_smoking_celltype_adjusted  = sumstats_saliva_full["epimeasure",]$beta
+    coefs$p_saliva_smoking_celltype_adjusted  = sumstats_saliva_full["epimeasure",]$p
+    # append results
+    results_biomarkers <- rbind(results_biomarkers, coefs)
+  }
+}
+# FDR-correct per biomarker across all clocks & tissues
+pvals_all <- data.frame(matrix(nrow = 1, ncol = 0))
+for(marker in biomarkers){
+    pvals = results_biomarkers %>% 
+    filter(biomarker == marker) %>% 
+    select(epigenetic_measure, biomarker, 
+           p_blood_minimal_model, p_blood_smoking_celltype_adjusted,
+           p_saliva_minimal_model, p_saliva_smoking_celltype_adjusted) %>%
+    pivot_longer(cols = starts_with("p_blood") | starts_with("p_saliva"),
+                 names_to = c("tissue", ".value"),
+                 names_pattern = "p_(blood|saliva)_(.+)")
+    pvals$p_fdr_minimal_model = p.adjust(pvals$minimal_model, method = "fdr")
+    pvals$p_fdr_smoking_celltype_adjusted = p.adjust(pvals$smoking_celltype_adjusted, method = "fdr")
+    pvals = pvals %>%
+      select(epigenetic_measure, biomarker, tissue, starts_with("p_fdr")) %>%
+      pivot_wider(values_from = starts_with("p_fdr"),
+                  names_from = "tissue",
+                  names_glue = "p_fdr_{tissue}_{sub('p_fdr_', '', .value)}")
+    # append corrected p-values
+    pvals_all <- rbind(pvals_all, pvals)
+}
+results_biomarkers <- left_join(results_biomarkers, pvals_all, by = c("epigenetic_measure", "biomarker"))
+
+# rename epigenetic clocks/scores
+results_biomarkers <- results_biomarkers %>%
+  mutate(epigenetic_measure = rename_clocks(rename_accel(epigenetic_measure))) %>%
+  mutate(epigenetic_measure = case_when(epigenetic_measure != "DunedinPACE" 
+                                        & epigenetic_measure %in% clockorder ~
+                                          paste0(epigenetic_measure, "Accel"),
+                                        TRUE ~ epigenetic_measure))
+# arrange
+epiorder <- c("HorvathAccel", "PCHorvathAccel", "SkinBloodAccel", "PCSkinBloodAccel", "HannumAccel", "PCHannumAccel", "PedBEAccel", "WuAccel", "PhenoAgeAccel", "PCPhenoAgeAccel", "GrimAgeAccel", "PCGrimAgeAccel", "GrimAge2Accel", "DunedinPACE")
+results_biomarkers <- results_biomarkers %>%
+    arrange(factor(epigenetic_measure, levels = epiorder)) %>%
+  relocate(p_fdr_blood_minimal_model, .after = p_blood_minimal_model) %>%
+  relocate(p_fdr_saliva_minimal_model, .after = p_saliva_minimal_model) %>%
+  relocate(p_fdr_blood_smoking_celltype_adjusted, .after = p_blood_smoking_celltype_adjusted) %>%
+  relocate(p_fdr_saliva_smoking_celltype_adjusted, .after = p_saliva_smoking_celltype_adjusted)
+# round values
+results_biomarkers <- round_values(results_biomarkers)
+# rename biomarkers
+results_biomarkers <- results_biomarkers %>%
+  mutate(biomarker = case_match(biomarker,
+                                "bp_systolic" ~ "Systolic blood pressure",
+                                "bodpod_fatmass" ~ "Body fat mass",
+                                "TotalC" ~ "Total cholesterol",
+                                "LDLC" ~ "LDL cholesterol",
+                                "HDLC" ~ "HDL cholesterol",
+                                "TotalTG" ~ "Total triglycerides",
+                                 .default = biomarker))
+```
+
+### Export results as Supplementary Table 11
+```{r}
+save(results_biomarkers, file = "./03_results/results_biomarkers.Rdata")
+write_xlsx(results_biomarkers, path = "05_tables_for_publication/supptable_11_biomarker_associations.xlsx", col_names = TRUE, format_headers = TRUE)
+```
+
+## Plot results
+
+### Without cell type correction (minimal model) - Supplementary Figure 5
+```{r}
+# results to long format & add significance category
+results_biomarkers_long <- results_biomarkers %>%
+      select(epigenetic_measure, biomarker, ends_with("_minimal_model"))
+colnames(results_biomarkers_long) <- str_remove_all(colnames(results_biomarkers_long), "_minimal_model")
+results_biomarkers_long <- results_biomarkers_long %>%
+  pivot_longer(
+    cols = contains("_blood") | contains("_saliva"),
+    names_to = c(".value", "tissue"),
+    names_pattern = "^(.*)_(blood|saliva)$") %>%
+  mutate(significance = case_when(
+    p < 0.05 & p_fdr < 0.05 ~ "significant",
+    p < 0.05 & p_fdr >= 0.05 ~ "nominal",
+    p >= 0.05 ~ "n.s.",
+    TRUE ~ "n.s.")) %>%
+  mutate(effect = paste0(tissue, ": ", significance),
+         type = case_when(epigenetic_measure %in% c("HorvathAccel", "PCHorvathAccel",
+                                                    "SkinBloodAccel", "PCSkinBloodAccel",
+                                                    "HannumAccel", "PCHannumAccel", 
+                                                    "WuAccel", "PedBEAccel") 
+                          ~ "Chronological clocks",
+                          epigenetic_measure %in% c("PhenoAgeAccel", "PCPhenoAgeAccel",
+                                                     "GrimAgeAccel", "PCGrimAgeAccel",
+                                                     "GrimAge2Accel", "DunedinPACE") 
+                           ~ "Biological clocks")) %>%
+  arrange(factor(biomarker, levels = c("Systolic blood pressure",
+                                       "Body fat mass",
+                                       "Total cholesterol",
+                                       "LDL cholesterol",
+                                       "HDL cholesterol",
+                                       "Total triglycerides")))
+# y axis annotation
+axis_annotation_df <- data.frame(
+  biomarker = factor(
+    rep(c("Systolic blood pressure", "Total cholesterol", "HDL cholesterol"), each = 2),
+    levels = c("Systolic blood pressure", "Body fat mass",
+               "Total cholesterol", "LDL cholesterol",
+               "HDL cholesterol", "Total triglycerides")),
+  y = rep(c(10, 3.5), 3),
+  label = rep(c("Chronological clocks", "Biological clocks"), 3))
+
+# horizontal barplot standardized betas by measure, color = tissue, bar alpha = significance (n.s., nominal, FDR), facets = biomarker
+biomarker_barplot <- ggplot(aes(x = beta_std, 
+                          y = factor(epigenetic_measure, levels = rev(epiorder)), 
+                          color = factor(tissue, levels = c("saliva", "blood")), 
+                          fill = factor(tissue, levels = c("saliva", "blood")),
+                          pattern_density = significance),
+                      data = results_biomarkers_long) +
+  # add hline to separate groups of epigenetic measures
+  geom_hline(yintercept = 6.5, color = "grey", linewidth = 0.5) +
+  # add hlines to separate effects between clocks
+  geom_hline(yintercept = seq(1.5, 13.5, 1), color = "lightgrey", linewidth = 0.25) +
+  # barplot
+  # geom_bar(stat = "identity", position="dodge2") +
+  geom_bar_pattern(stat = "identity", position="dodge2", 
+                   pattern = "stripe", pattern_fill = "white", pattern_color = "white",
+                   pattern_key_scale_factor=.5, linewidth = 0.9, width = 0.8) +
+  xlab("Effect size (standardized beta)") +
+  ggtitle("Minimal model") +
+  scale_color_brewer("Tissue", palette = "Set1", direction = -1, guide = "none") +
+  scale_fill_brewer("Tissue", palette = "Set1", direction = -1, 
+                    guide = guide_legend(reverse = TRUE, 
+                                         override.aes = list(pattern_density = 0))) +
+  scale_pattern_density_manual("Significance", values = c("n.s." = 1, "nominal" = 0.3, "significant" = 0), guide = guide_legend(override.aes = list(color = "grey"))) +
+  theme(panel.grid.major.y = element_blank()) +
+  facet_wrap(~factor(biomarker, 
+                     levels = c("Systolic blood pressure", "Body fat mass", 
+                                "Total cholesterol","LDL cholesterol", 
+                                "HDL cholesterol","Total triglycerides")),
+             nrow = 3, ncol = 2) +
+  geom_text(data = axis_annotation_df,
+            aes(x = -Inf, y = y, label = label),
+            inherit.aes = FALSE,
+            angle = 90,
+            vjust = -14,
+            size = 5, fontface = "bold", color = GyPr_palette[20],
+            lineheight = 0.85) +
+  coord_cartesian(clip = "off") +
+  theme_bw() +
+  theme(strip.text.x = element_text(size = 12, face = "bold"),
+        strip.background = element_rect(fill="white", color = "white"),
+        axis.text.y = element_text(size = 12, face = "bold"),
+        axis.title.y = element_blank(),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "bottom",
+        plot.margin = margin(t = 5, r = 5, b = 5, l = 55)) 
+
+biomarker_barplot
+
+png(file = "04_figures/supplementary_figure_5_barplot_biomarkers_minimal_model.png", height = 20, width = 14, units = 'in', res = 700)
+biomarker_barplot
+dev.off()
+```
+
+### With celltype and smoking correction - Figure 7
+```{r}
+# results to long format & add significance category
+results_biomarkers_long <- results_biomarkers %>%
+      select(epigenetic_measure, biomarker, ends_with("_smoking_celltype_adjusted"))
+colnames(results_biomarkers_long) <- str_remove_all(colnames(results_biomarkers_long), "_smoking_celltype_adjusted")
+results_biomarkers_long <- results_biomarkers_long %>%
+  pivot_longer(
+    cols = contains("_blood") | contains("_saliva"),
+    names_to = c(".value", "tissue"),
+    names_pattern = "^(.*)_(blood|saliva)$") %>%
+  mutate(significance = case_when(
+    p < 0.05 & p_fdr < 0.05 ~ "significant",
+    p < 0.05 & p_fdr >= 0.05 ~ "nominal",
+    p >= 0.05 ~ "n.s.",
+    TRUE ~ "n.s.")) %>%
+  mutate(effect = paste0(tissue, ": ", significance),
+         type = case_when(epigenetic_measure %in% c("HorvathAccel", "PCHorvathAccel",
+                                                    "SkinBloodAccel", "PCSkinBloodAccel",
+                                                    "HannumAccel", "PCHannumAccel", 
+                                                    "WuAccel", "PedBEAccel") 
+                          ~ "Chronological clocks",
+                          epigenetic_measure %in% c("PhenoAgeAccel", "PCPhenoAgeAccel",
+                                                     "GrimAgeAccel", "PCGrimAgeAccel",
+                                                     "GrimAge2Accel", "DunedinPACE") 
+                           ~ "Biological clocks")) %>%
+  arrange(factor(biomarker, levels = c("Systolic blood pressure",
+                                       "Body fat mass",
+                                       "Total cholesterol",
+                                       "LDL cholesterol",
+                                       "HDL cholesterol",
+                                       "Total triglycerides")))
+
+# horizontal barplot standardized betas by measure, color = tissue, bar alpha = significance (n.s., nominal, FDR), facets = biomarker
+biomarker_barplot <- ggplot(aes(x = beta_std, 
+                          y = factor(epigenetic_measure, levels = rev(epiorder)), 
+                          color = factor(tissue, levels = c("saliva", "blood")), 
+                          fill = factor(tissue, levels = c("saliva", "blood")),
+                          pattern_density = significance),
+                      data = results_biomarkers_long) +
+  # add hline to separate groups of epigenetic measures
+  geom_hline(yintercept = 6.5, color = "grey", linewidth = 0.5) +
+  # add hlines to separate effects between clocks
+  geom_hline(yintercept = seq(1.5, 13.5, 1), color = "lightgrey", linewidth = 0.25) +
+  # barplot
+  # geom_bar(stat = "identity", position="dodge2") +
+  geom_bar_pattern(stat = "identity", position="dodge2", 
+                   pattern = "stripe", pattern_fill = "white", pattern_color = "white",
+                   pattern_key_scale_factor=.5, linewidth = 0.9, width = 0.8) +
+  xlab("Effect size (standardized beta)") +
+  scale_color_brewer("Tissue", palette = "Set1", direction = -1, guide = "none") +
+  scale_fill_brewer("Tissue", palette = "Set1", direction = -1, 
+                    guide = guide_legend(reverse = TRUE, override.aes = list(pattern_density = 0))) +
+  scale_pattern_density_manual("Significance", values = c("n.s." = 1, "nominal" = 0.3, "significant" = 0), guide = guide_legend(override.aes = list(color = "grey"))) +
+  theme(panel.grid.major.y = element_blank()) +
+  facet_wrap(~factor(biomarker, 
+                     levels = c("Systolic blood pressure", "Body fat mass", 
+                                "Total cholesterol","LDL cholesterol", 
+                                "HDL cholesterol","Total triglycerides")),
+             nrow = 3, ncol = 2) +
+  geom_text(data = axis_annotation_df,
+            aes(x = -Inf, y = y, label = label),
+            inherit.aes = FALSE,
+            angle = 90,
+            vjust = -14,
+            size = 5, fontface = "bold", color = GyPr_palette[20],
+            lineheight = 0.85) +
+  coord_cartesian(clip = "off") +
+  theme_bw() +
+  theme(strip.text.x = element_text(size = 12, face = "bold"),
+    strip.background = element_rect(fill="white", color = "white"),
+    axis.text.y = element_text(size = 12, face = "bold"),
+    axis.title.y = element_blank(),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    legend.position = "bottom",
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 55))
+
+biomarker_barplot
+
+png(file = "04_figures/figure_7_barplot_biomarkers_smoking_celltype_adjusted.png", height = 20, width = 14, units = 'in', res = 700)
+biomarker_barplot
+dev.off()
+```
+

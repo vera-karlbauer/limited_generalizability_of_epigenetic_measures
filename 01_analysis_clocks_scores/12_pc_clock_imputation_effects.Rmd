@@ -1,0 +1,246 @@
+---
+title: 'Evaluating epigenetic clocks and scores: Effects of PC clock imputation'
+author: "Vera N. Karlbauer"
+date: "2026-07-08"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(
+  root.dir = "/Users/vera_karlbauer/Documents/Kids2Health/02_stats/02_analysis/evaluating_epigenetic_clocks_and_scores",
+  digits = 4, scipen = 6)
+```
+
+# Purpose:
+- Plot and examine differences in absolute clock performance (median absolute error MAE) between PC clocks with and without imputation; compared to non-PC counterparts (Extended Data Figure 1).  
+- The standard settings for PC clock computation (source code by authors, ) perform median imputation of missing CpGs based on an adult blood reference. This might not be appropriate for applications in children or in other tissues.
+- Therefore, imputation was manually disabled, and results with and without imputation are compared.
+
+# Setup
+### Step 0: Load packages
+```{r, include = FALSE}
+# load packages
+library(rmarkdown)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggpubr)
+library(RColorBrewer)
+library(stringr)
+library(Metrics)
+```
+
+### Step 1: Source functions and utilities
+
+```{r, include = FALSE}
+source("./00_functions/01_functions.R")
+source("./00_functions/02_utilities.R")
+```
+
+### Step 2: Load data
+
+```{r, include = FALSE}
+# old estimation with PC clock imputation
+load("../../../01_data/02_proc/09_cross_tissue/99_archive/all_cross_tissue_inner.Rdata")
+# change dataset name immediately
+old_with_imputation <- all_cross_tissue_inner
+
+# new estimation without PC clock imputation
+load("../../../01_data/02_proc/09_cross_tissue/all_cross_tissue_inner.Rdata")
+```
+
+### Step 3: Prepare data
+
+```{r}
+### Unimputed (new)
+# select clocks only & transform to long format
+new_epiclocks <- all_cross_tissue_inner %>%
+  select(child_id, timepoint, subproject, bio_blood_age, bio_saliva_age, chrono_age, 
+         starts_with(c("epiage_horvath", "epiage_pc_horvath", "epiage_skinblood", "epiage_pc_skinblood",
+                       "epiage_hannum", "epiage_pc_hannum", "epiage_phenoage", "epiage_pc_phenoage",
+                       "epiage_grimage", "epiage_pc_grimage"))) %>%
+  select(!starts_with(c("epiage_accel_", "epiage_delta_", "epiage_grimage2", "epiage_accel_grimage2"))) %>%
+  select(!contains("resid"))
+# pivot by tissue
+new_epiclocks_long <- pivot_longer(new_epiclocks,
+                               starts_with("epiage"),
+                               names_to = c(".value", "tissue"),
+                               names_pattern = "^(.*)_(blood|saliva)$")
+# pivot by clock name
+new_epiclocks_long <- pivot_longer(new_epiclocks_long,
+                               cols = starts_with("epiage"),
+                               names_to = "clock_name",
+                               names_prefix = "epiage_",
+                               values_to = "epiage")
+
+### Imputed (old)
+# select clocks only & transform to long format
+old_epiclocks <- old_with_imputation %>%
+  select(child_id, timepoint, subproject, bio_blood_age, bio_saliva_age, chrono_age, 
+         starts_with(c("epiage_horvath", "epiage_pc_horvath", "epiage_skinblood", "epiage_pc_skinblood",
+                       "epiage_hannum", "epiage_pc_hannum", "epiage_phenoage", "epiage_pc_phenoage",
+                       "epiage_grimage", "epiage_pc_grimage"))) %>%
+  select(!starts_with(c("epiage_accel_", "epiage_delta_", "epiage_grimage2", "epiage_accel_grimage2"))) %>%
+  select(!contains("resid"))
+# pivot by tissue
+old_epiclocks_long <- pivot_longer(old_epiclocks,
+                               starts_with("epiage"),
+                               names_to = c(".value", "tissue"),
+                               names_pattern = "^(.*)_(blood|saliva)$")
+# pivot by clock name
+old_epiclocks_long <- pivot_longer(old_epiclocks_long,
+                               cols = starts_with("epiage"),
+                               names_to = "clock_name",
+                               names_prefix = "epiage_",
+                               values_to = "epiage")
+```
+
+# Analysis
+
+## Calculate median absolute error per tissue per clock for imputed and unimputed PC clocks
+### Imputed (old)
+```{r}
+old_mae_clocks <- as.data.frame(matrix(ncol = 3, nrow = 0))
+colnames(old_mae_clocks) <- c("mae", "clock_name", "tissue")
+clocknames <- unique(old_epiclocks_long$clock_name)
+
+for(i in 1:length(clocknames)){
+  clockname = clocknames[i]
+  blood = filter(old_epiclocks_long, tissue == "blood", clock_name == clockname)
+  mae_blood = as.data.frame(mdae(actual = blood$bio_blood_age, predicted = blood$epiage))
+  colnames(mae_blood) = c("mae")
+  saliva = filter(old_epiclocks_long, tissue == "saliva", clock_name == clockname)
+  mae_saliva = as.data.frame(mdae(actual = saliva$bio_saliva_age, predicted = saliva$epiage))
+  colnames(mae_saliva) = c("mae")
+  mae = rbind(mae_blood, mae_saliva)
+  colnames(mae) = c("mae")
+  mae$clock_name = c(clockname, clockname)
+  mae$tissue = c("blood", "saliva")
+  old_mae_clocks <- rbind(old_mae_clocks, mae)
+}
+old_mae_clocks <- old_mae_clocks %>%
+ mutate(clock_name = str_replace_all(clock_name,
+                                              c("pc_horvath" = "PCHorvath",
+                                                "horvath" = "Horvath",
+                                                "pc_skinblood" = "PCSkinBlood",
+                                                "skinblood" = "SkinBlood",
+                                                "pc_hannum" = "PCHannum",
+                                                "hannum" = "Hannum",
+                                                "pc_phenoage" = "PCPhenoAge",
+                                                "phenoage" = "PhenoAge",
+                                                "pc_grimage" = "PCGrimAge",
+                                                 "grimage" = "GrimAge")))
+colorder <- c("Horvath", "PCHorvath", "SkinBlood", "PCSkinBlood", "Hannum", "PCHannum", "PhenoAge", "PCPhenoAge", "GrimAge", "PCGrimAge")
+old_mae_clocks <- old_mae_clocks[order(factor(old_mae_clocks$clock_name, levels = colorder)),]
+```
+
+### Unimputed (new)
+```{r}
+new_mae_clocks <- as.data.frame(matrix(ncol = 3, nrow = 0))
+colnames(new_mae_clocks) <- c("mae", "clock_name", "tissue")
+clocknames <- unique(new_epiclocks_long$clock_name)
+
+for(i in 1:length(clocknames)){
+  clockname = clocknames[i]
+  blood = filter(new_epiclocks_long, tissue == "blood", clock_name == clockname)
+  mae_blood = as.data.frame(mdae(actual = blood$bio_blood_age, predicted = blood$epiage))
+  colnames(mae_blood) = c("mae")
+  saliva = filter(new_epiclocks_long, tissue == "saliva", clock_name == clockname)
+  mae_saliva = as.data.frame(mdae(actual = saliva$bio_saliva_age, predicted = saliva$epiage))
+  colnames(mae_saliva) = c("mae")
+  mae = rbind(mae_blood, mae_saliva)
+  colnames(mae) = c("mae")
+  mae$clock_name = c(clockname, clockname)
+  mae$tissue = c("blood", "saliva")
+  new_mae_clocks <- rbind(new_mae_clocks, mae)
+}
+new_mae_clocks <- new_mae_clocks %>%
+ mutate(clock_name = str_replace_all(clock_name,
+                                              c("pc_horvath" = "PCHorvath",
+                                                "horvath" = "Horvath",
+                                                "pc_skinblood" = "PCSkinBlood",
+                                                "skinblood" = "SkinBlood",
+                                                "pc_hannum" = "PCHannum",
+                                                "hannum" = "Hannum",
+                                                "pc_phenoage" = "PCPhenoAge",
+                                                "phenoage" = "PhenoAge",
+                                                "pc_grimage" = "PCGrimAge",
+                                                 "grimage" = "GrimAge")))
+new_mae_clocks <- new_mae_clocks[order(factor(new_mae_clocks$clock_name, levels = colorder)),]
+```
+
+## Plot MAE per clock per tissue for imputed and unimputed PC clocks (Extended Data Figure 1)
+```{r}
+# old: imputed
+maeplot_old_imputed <- ggplot(old_mae_clocks, aes(x = clock_name, y = mae, fill = tissue)) +
+  geom_bar(position = "dodge", stat="identity") +
+  geom_text(aes(label=round(mae, digits = 2)), vjust=-0.4, color="black", size=3.5,
+            position = position_dodge(0.9)) +
+  scale_fill_manual(values=c("#EB5355", "#699ECA")) +
+  scale_x_discrete(limit = colorder) +
+  ylab("Median absolute error (years)") +
+  xlab("Clock name") +
+  ggtitle("MAE with imputation of missing CpGs on PC clocks") +
+  # add abline to seperate chrono & bio clocks
+  geom_vline(xintercept = 6.5, color = "darkgrey", linewidth = 0.5) +
+  annotate("label", x=3, y=50, size = 4,
+           label = "Chronological clocks",
+           fill = "grey") +
+  annotate("label", x=8.5, y=50, size = 4,
+           label = "Biological clocks",
+           fill = "grey") +
+  ylim(0, 50) +
+  theme_bw() +
+  theme(legend.position = "inside", legend.position.inside = c(0.1,0.8),
+        axis.text.x = element_text(angle = 45, vjust = 0.7, hjust = 0.7))
+maeplot_old_imputed
+
+# new: unimputed
+maeplot_new_unimputed <- ggplot(new_mae_clocks, aes(x = clock_name, y = mae, fill = tissue)) +
+  geom_bar(position = "dodge", stat="identity") +
+  geom_text(aes(label=round(mae, digits = 2)), vjust=-0.4, color="black", size=3.5,
+            position = position_dodge(0.9)) +
+  scale_fill_brewer(palette = "Set1") +
+  scale_x_discrete(limit = colorder) +
+  ylab("Median absolute error (years)") +
+  xlab("Clock name") +
+  ggtitle("MAE without imputation of missing CpGs on PC clocks") +
+  # add abline to seperate chrono & bio clocks
+  geom_vline(xintercept = 6.5, color = "darkgrey", linewidth = 0.5) +
+  annotate("label", x=3, y=50, size = 4,
+           label = "Chronological clocks",
+           fill = "grey") +
+  annotate("label", x=8.5, y=50, size = 4,
+           label = "Biological clocks",
+           fill = "grey") +
+  ylim(0, 50) +
+  theme_bw() +
+  theme(legend.position = "inside", legend.position.inside = c(0.1,0.8),
+        axis.text.x = element_text(angle = 45, vjust = 0.7, hjust = 0.7)) 
+maeplot_new_unimputed
+
+# create combined figure
+combined = ggarrange(maeplot_old_imputed, maeplot_new_unimputed,
+                        ncol = 1,
+                        nrow = 2,
+                        common.legend = FALSE,
+  labels = c("A","B"))
+
+png(filename = "./04_figures/supplementary_figure_1_pc_clock_imputation.png", width = 20, height = 28, res = 700, units = "cm")
+  combined
+dev.off()
+```
+
+## Examine MAE differences between PC clocks with and without imputation
+
+### Calculate differences
+```{r} 
+maediff <- left_join(new_mae_clocks, old_mae_clocks, by = c("clock_name", "tissue"), suffix = c("_new_unimputed", "_old_imputed")) %>%
+  relocate("mae_old_imputed", .after = "mae_new_unimputed") %>%
+  mutate(maediff = mae_old_imputed - mae_new_unimputed)
+
+maediff
+```

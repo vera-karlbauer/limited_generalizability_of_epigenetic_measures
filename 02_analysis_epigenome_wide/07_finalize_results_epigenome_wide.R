@@ -2,7 +2,7 @@
 ### Author: "Vera N. Karlbauer"
 ### Contact: "vera_karlbauer@psych.mpg.de"
 ### Date created: "2025-02-20"
-### Purpose: combine epigenome-wide correlation and ICC results and export (supplementary table 10)
+### Purpose: combine epigenome-wide correlation and ICC results and export (Supplementary Table 14)
 
 ### Setup
 # general
@@ -90,4 +90,4 @@ results_epigenome <- results_epigenome %>%
 
 ### Export
 save(results_epigenome, file = "03_results/results_epigenome_wide.Rdata")
-write.csv(results_epigenome, file = "05_tables_for_publication/supptable_10_blood_saliva_epigenome_wide.csv", row.names = FALSE)
+write.csv(results_epigenome, file = "05_tables_for_publication/supptable_14_blood_saliva_epigenome_wide.csv", row.names = FALSE)
